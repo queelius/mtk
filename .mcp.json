@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mtk": {
+      "command": "python",
+      "args": ["-m", "mtk.mcp"],
+      "env": {}
+    }
+  }
+}

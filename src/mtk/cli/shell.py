@@ -7,25 +7,19 @@ from __future__ import annotations
 
 import cmd
 import shlex
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from mtk.cli.main import format_date
+
 if TYPE_CHECKING:
     from mtk.core.database import Database
     from mtk.core.models import Email
 
 console = Console()
-
-
-def format_date(dt: datetime | None) -> str:
-    """Format datetime for display."""
-    if dt is None:
-        return "N/A"
-    return dt.strftime("%Y-%m-%d %H:%M")
 
 
 class MtkShell(cmd.Cmd):

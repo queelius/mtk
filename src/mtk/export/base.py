@@ -12,6 +12,8 @@ if TYPE_CHECKING:
     from mtk.core.models import Email
     from mtk.core.privacy import PrivacyFilter, PrivacyReport
 
+from mtk.core.privacy import _email_to_dict
+
 
 @dataclass
 class ExportResult:
@@ -86,37 +88,7 @@ class Exporter(ABC):
             return self.privacy_filter.filter_emails(emails)
 
         # No privacy filter - convert to dicts without filtering
-        result = []
-        for email in emails:
-            result.append(
-                {
-                    "message_id": email.message_id,
-                    "from_addr": email.from_addr,
-                    "from_name": email.from_name,
-                    "subject": email.subject,
-                    "date": email.date,
-                    "in_reply_to": email.in_reply_to,
-                    "references": email.references,
-                    "body_text": email.body_text,
-                    "body_html": email.body_html,
-                    "body_preview": email.body_preview,
-                    "thread_id": email.thread_id,
-                    "tags": [t.name for t in email.tags]
-                    if hasattr(email, "tags") and email.tags
-                    else [],
-                    "attachments": [
-                        {
-                            "filename": a.filename,
-                            "content_type": a.content_type,
-                            "size": a.size,
-                        }
-                        for a in email.attachments
-                    ]
-                    if hasattr(email, "attachments") and email.attachments
-                    else [],
-                }
-            )
-        return result, None
+        return [_email_to_dict(email) for email in emails], None
 
     def _format_date(self, dt: datetime | None) -> str:
         """Format datetime for export."""

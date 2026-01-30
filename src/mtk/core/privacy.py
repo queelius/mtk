@@ -43,6 +43,39 @@ class PrivacyReport:
     redaction_patterns_applied: dict[str, int] = field(default_factory=dict)
 
 
+def _email_to_dict(email: Email) -> dict:
+    """Convert an Email ORM object to a plain dictionary.
+
+    This is the canonical conversion used by privacy filtering and export.
+    """
+    return {
+        "message_id": email.message_id,
+        "from_addr": email.from_addr,
+        "from_name": email.from_name,
+        "subject": email.subject,
+        "date": email.date,
+        "in_reply_to": email.in_reply_to,
+        "references": email.references,
+        "body_text": email.body_text,
+        "body_html": email.body_html,
+        "body_preview": email.body_preview,
+        "thread_id": email.thread_id,
+        "tags": [t.name for t in email.tags]
+        if hasattr(email, "tags") and email.tags
+        else [],
+        "attachments": [
+            {
+                "filename": a.filename,
+                "content_type": a.content_type,
+                "size": a.size,
+            }
+            for a in email.attachments
+        ]
+        if hasattr(email, "attachments") and email.attachments
+        else [],
+    }
+
+
 class PrivacyFilter:
     """Apply privacy rules to emails for safe export.
 
@@ -164,34 +197,16 @@ class PrivacyFilter:
         body_result = self.redact_text(email.body_text or "")
         html_result = self.redact_text(email.body_html or "")
 
-        return {
-            "message_id": email.message_id,
-            "from_addr": email.from_addr,
-            "from_name": email.from_name,
-            "subject": subject_result.redacted,
-            "date": email.date,
-            "in_reply_to": email.in_reply_to,
-            "references": email.references,
-            "body_text": body_result.redacted,
-            "body_html": html_result.redacted,
-            "body_preview": self.redact_text(email.body_preview or "").redacted,
-            "thread_id": email.thread_id,
-            "tags": [t.name for t in email.tags] if hasattr(email, "tags") else [],
-            "attachments": [
-                {
-                    "filename": a.filename,
-                    "content_type": a.content_type,
-                    "size": a.size,
-                }
-                for a in email.attachments
-            ]
-            if hasattr(email, "attachments")
-            else [],
-            "_redactions": {
-                "subject": subject_result.redaction_count,
-                "body": body_result.redaction_count,
-            },
+        email_data = _email_to_dict(email)
+        email_data["subject"] = subject_result.redacted
+        email_data["body_text"] = body_result.redacted
+        email_data["body_html"] = html_result.redacted
+        email_data["body_preview"] = self.redact_text(email.body_preview or "").redacted
+        email_data["_redactions"] = {
+            "subject": subject_result.redaction_count,
+            "body": body_result.redaction_count,
         }
+        return email_data
 
     def preview(self, emails: list[Email]) -> PrivacyReport:
         """Preview what privacy filtering would do to a set of emails.
@@ -269,32 +284,7 @@ class PrivacyFilter:
                     report.redacted_count += 1
                 del email_data["_redactions"]  # Don't include in output
             else:
-                email_data = {
-                    "message_id": email.message_id,
-                    "from_addr": email.from_addr,
-                    "from_name": email.from_name,
-                    "subject": email.subject,
-                    "date": email.date,
-                    "in_reply_to": email.in_reply_to,
-                    "references": email.references,
-                    "body_text": email.body_text,
-                    "body_html": email.body_html,
-                    "body_preview": email.body_preview,
-                    "thread_id": email.thread_id,
-                    "tags": [t.name for t in email.tags]
-                    if hasattr(email, "tags")
-                    else [],
-                    "attachments": [
-                        {
-                            "filename": a.filename,
-                            "content_type": a.content_type,
-                            "size": a.size,
-                        }
-                        for a in email.attachments
-                    ]
-                    if hasattr(email, "attachments")
-                    else [],
-                }
+                email_data = _email_to_dict(email)
 
             result.append(email_data)
 

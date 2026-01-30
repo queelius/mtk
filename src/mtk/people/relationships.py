@@ -13,9 +13,8 @@ import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Iterator
 
-from sqlalchemy import func, select, and_, or_
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mtk.core.models import Email, Person, PersonEmail, Thread

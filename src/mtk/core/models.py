@@ -10,13 +10,19 @@ Core models for email archival, annotation, and relationship tracking:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, ForeignKey, Index, Integer, Float, String, Table, Text, UniqueConstraint
+from sqlalchemy import (
+    Column,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-
-if TYPE_CHECKING:
-    pass
 
 
 class Base(DeclarativeBase):
@@ -69,6 +75,11 @@ class Email(Base):
 
     # File reference (path relative to maildir)
     file_path: Mapped[str | None] = mapped_column(String(1000))
+
+    # IMAP tracking
+    imap_uid: Mapped[int | None] = mapped_column()
+    imap_account: Mapped[str | None] = mapped_column(String(100))
+    imap_folder: Mapped[str | None] = mapped_column(String(255))
 
     # mtk enhancements
     embedding: Mapped[bytes | None] = mapped_column()
@@ -281,9 +292,14 @@ class Annotation(Base):
     )
 
     def __repr__(self) -> str:
-        target = f"email={self.email_id}" if self.email_id else ""
-        target = target or (f"thread={self.thread_id}" if self.thread_id else "")
-        target = target or (f"person={self.person_id}" if self.person_id else "unknown")
+        if self.email_id:
+            target = f"email={self.email_id}"
+        elif self.thread_id:
+            target = f"thread={self.thread_id}"
+        elif self.person_id:
+            target = f"person={self.person_id}"
+        else:
+            target = "unknown"
         return f"<Annotation {self.annotation_type} on {target}>"
 
 
@@ -377,3 +393,49 @@ email_topics = Table(
     Column("topic_id", Integer, ForeignKey("topic_clusters.id"), primary_key=True),
     Column("score", Float, default=1.0),  # Membership score/weight
 )
+
+
+class ImapSyncState(Base):
+    """Tracks IMAP sync state per account/folder for incremental sync."""
+
+    __tablename__ = "imap_sync_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_name: Mapped[str] = mapped_column(String(100), index=True)
+    folder: Mapped[str] = mapped_column(String(255))
+
+    # IMAP state for incremental sync
+    uid_validity: Mapped[int | None] = mapped_column()
+    last_uid: Mapped[int] = mapped_column(default=0)
+    highest_modseq: Mapped[int | None] = mapped_column()
+
+    # Statistics
+    message_count: Mapped[int] = mapped_column(default=0)
+    last_sync: Mapped[datetime | None] = mapped_column()
+
+    __table_args__ = (
+        UniqueConstraint("account_name", "folder"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ImapSyncState {self.account_name}/{self.folder} uid={self.last_uid}>"
+
+
+class ImapPendingPush(Base):
+    """Queue of tag changes to push to IMAP server on next sync."""
+
+    __tablename__ = "imap_pending_push"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email_id: Mapped[int] = mapped_column(ForeignKey("emails.id"), index=True)
+    account_name: Mapped[str] = mapped_column(String(100))
+
+    # Change details
+    action: Mapped[str] = mapped_column(String(10))  # "add" or "remove"
+    tag_name: Mapped[str] = mapped_column(String(100))
+
+    # Metadata
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+
+    def __repr__(self) -> str:
+        return f"<ImapPendingPush {self.action} tag={self.tag_name} email={self.email_id}>"

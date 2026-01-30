@@ -314,9 +314,10 @@ class NotmuchSync:
         Returns:
             NotmuchSyncResult with import statistics.
         """
-        from mtk.core.models import Email
+        from sqlalchemy import select
+        from mtk.core.models import Email, Tag
         from mtk.people.resolver import PersonResolver
-        from mtk.parser import EmailParser
+        from mtk.importers.parser import EmailParser
 
         result = NotmuchSyncResult(operation="import")
 
@@ -350,11 +351,7 @@ class NotmuchSync:
                     if not filepath.exists():
                         continue
 
-                    with open(filepath, "rb") as f:
-                        parsed = parser.parse(f.read(), source_path=filepath)
-
-                    if not parsed:
-                        continue
+                    parsed = parser.parse_file(filepath)
 
                     # Create email
                     email = Email(
@@ -379,9 +376,6 @@ class NotmuchSync:
                     result.emails_processed += 1
 
                     # Import tags
-                    from sqlalchemy import select
-                    from mtk.core.models import Tag
-
                     for tag_name in nm_msg.tags:
                         if tag_name in self.SKIP_TAGS:
                             continue

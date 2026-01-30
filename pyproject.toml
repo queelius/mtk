@@ -41,15 +41,24 @@ semantic = [
     "sentence-transformers>=2.2.0",
     "faiss-cpu>=1.7.0",
 ]
+mcp = [
+    "mcp>=1.0.0",
+]
+imap = [
+    "imapclient>=3.0.0",
+    "keyring>=25.0.0",
+]
+imap-oauth = [
+    "google-auth-oauthlib>=1.0.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
-    "pytest-asyncio>=0.21.0",
     "mypy>=1.0.0",
     "ruff>=0.1.0",
 ]
 all = [
-    "mtk[notmuch,semantic,dev]",
+    "mtk[notmuch,semantic,mcp,imap,dev]",
 ]
 
 [project.scripts]

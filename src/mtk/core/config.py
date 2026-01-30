@@ -26,6 +26,9 @@ class MtkConfig:
     # Privacy defaults
     default_export_allowed: bool = True
 
+    # IMAP accounts
+    imap_accounts: dict[str, ImapAccountConfig] = field(default_factory=dict)
+
     @classmethod
     def default_config_dir(cls) -> Path:
         """Get the default config directory (~/.config/mtk)."""
@@ -74,11 +77,15 @@ class MtkConfig:
         config.generate_summaries = data.get("generate_summaries", False)
         config.default_export_allowed = data.get("default_export_allowed", True)
 
+        # IMAP accounts
+        for name, acct_data in data.get("imap_accounts", {}).items():
+            config.imap_accounts[name] = ImapAccountConfig.from_dict(name, acct_data)
+
         return config
 
     def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary for serialization."""
-        return {
+        data: dict[str, Any] = {
             "maildir": str(self.maildir) if self.maildir else None,
             "notmuch_config": str(self.notmuch_config) if self.notmuch_config else None,
             "db_path": str(self.db_path) if self.db_path else None,
@@ -87,6 +94,11 @@ class MtkConfig:
             "generate_summaries": self.generate_summaries,
             "default_export_allowed": self.default_export_allowed,
         }
+        if self.imap_accounts:
+            data["imap_accounts"] = {
+                name: acct.to_dict() for name, acct in self.imap_accounts.items()
+            }
+        return data
 
     def save(self, config_path: Path | None = None) -> None:
         """Save configuration to file.
@@ -109,6 +121,47 @@ class MtkConfig:
 
         if self.db_path:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+@dataclass
+class ImapAccountConfig:
+    """Configuration for a single IMAP account."""
+
+    name: str = ""
+    host: str = ""
+    port: int = 993
+    username: str = ""
+    # Password stored in keyring, not here
+    use_ssl: bool = True
+    provider: str = "generic"  # "generic" or "gmail"
+    folders: list[str] = field(default_factory=lambda: ["INBOX"])
+    oauth2: bool = False
+
+    @classmethod
+    def from_dict(cls, name: str, data: dict[str, Any]) -> ImapAccountConfig:
+        """Create from dictionary."""
+        return cls(
+            name=name,
+            host=data.get("host", ""),
+            port=data.get("port", 993),
+            username=data.get("username", ""),
+            use_ssl=data.get("use_ssl", True),
+            provider=data.get("provider", "generic"),
+            folders=data.get("folders", ["INBOX"]),
+            oauth2=data.get("oauth2", False),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "host": self.host,
+            "port": self.port,
+            "username": self.username,
+            "use_ssl": self.use_ssl,
+            "provider": self.provider,
+            "folders": self.folders,
+            "oauth2": self.oauth2,
+        }
 
 
 @dataclass

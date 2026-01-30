@@ -1,7 +1,7 @@
 """Search engine for email archive.
 
 Provides multiple search modes:
-- Keyword search (SQLite FTS5)
+- Keyword search (SQLite LIKE pattern matching)
 - Field-specific search (from, to, subject, date ranges)
 - Semantic search (embeddings + vector similarity)
 - Combined/hybrid search
@@ -14,10 +14,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from mtk.core.models import Email, Person, PersonEmail, Tag, Thread, email_tags
+from mtk.core.models import Email, Tag, email_tags
 
 
 @dataclass
@@ -64,11 +64,25 @@ class SearchEngine:
     """Search engine for email archive.
 
     Supports multiple search modes and query types.
+    Uses FTS5 for fast ranked text search when available,
+    with LIKE fallback for databases without FTS5.
     """
 
     def __init__(self, session: Session) -> None:
         self.session = session
         self._embedding_model = None
+        self._fts5_checked = False
+        self._fts5_ok = False
+
+    def _has_fts5(self) -> bool:
+        """Check if FTS5 is available for this session's database."""
+        if not self._fts5_checked:
+            from mtk.search.fts import fts5_available
+
+            engine = self.session.get_bind()
+            self._fts5_ok = fts5_available(engine)
+            self._fts5_checked = True
+        return self._fts5_ok
 
     def search(
         self,
@@ -94,8 +108,10 @@ class SearchEngine:
 
         if query.semantic and query.text:
             return self._semantic_search(query, limit, offset)
+        elif query.text and self._has_fts5() and order_by == "relevance":
+            return self._fts5_search(query, limit, offset)
         else:
-            return self._keyword_search(query, limit, offset, order_by)
+            return self._like_search(query, limit, offset, order_by)
 
     def parse_query(self, query_str: str) -> SearchQuery:
         """Parse a query string into a SearchQuery object.
@@ -192,14 +208,112 @@ class SearchEngine:
                 continue
         return None
 
-    def _keyword_search(
+    def _fts5_search(
+        self,
+        query: SearchQuery,
+        limit: int,
+        offset: int,
+    ) -> list[SearchResult]:
+        """Perform FTS5 search with BM25 ranking.
+
+        Uses FTS5 for text matching and SQLAlchemy for field filters.
+        Falls back to LIKE search if FTS5 query fails.
+        """
+        from mtk.search.fts import fts5_search, prepare_fts_query
+
+        fts_query = prepare_fts_query(query.text or "")
+        if not fts_query:
+            return self._like_search(query, limit, offset, "date")
+
+        # Get FTS5 results (may return more than needed since we filter after)
+        fts_results = fts5_search(
+            self.session, fts_query, limit=limit * 3, offset=0
+        )
+        if not fts_results:
+            # FTS5 query failed or no results — fall back to LIKE
+            return self._like_search(query, limit, offset, "relevance")
+
+        # Get the email IDs from FTS results
+        fts_email_ids = [r["email_id"] for r in fts_results]
+        fts_lookup = {r["email_id"]: r for r in fts_results}
+
+        # Build field-filter conditions
+        conditions = [Email.id.in_(fts_email_ids)]
+
+        if query.from_addr:
+            conditions.append(Email.from_addr.ilike(f"%{query.from_addr}%"))
+        if query.subject:
+            conditions.append(Email.subject.ilike(f"%{query.subject}%"))
+        if query.date_from:
+            conditions.append(Email.date >= query.date_from)
+        if query.date_to:
+            conditions.append(Email.date <= query.date_to)
+        if query.thread_id:
+            conditions.append(Email.thread_id == query.thread_id)
+        if query.has_attachment:
+            from mtk.core.models import Attachment
+
+            subq = select(Attachment.email_id).distinct()
+            conditions.append(Email.id.in_(subq))
+        if query.has_tags:
+            for tag_name in query.has_tags:
+                tag_subq = (
+                    select(email_tags.c.email_id)
+                    .join(Tag, Tag.id == email_tags.c.tag_id)
+                    .where(Tag.name == tag_name)
+                )
+                conditions.append(Email.id.in_(tag_subq))
+        if query.not_tags:
+            for tag_name in query.not_tags:
+                tag_subq = (
+                    select(email_tags.c.email_id)
+                    .join(Tag, Tag.id == email_tags.c.tag_id)
+                    .where(Tag.name == tag_name)
+                )
+                conditions.append(Email.id.notin_(tag_subq))
+
+        stmt = select(Email).where(and_(*conditions))
+        emails = self.session.execute(stmt).scalars().all()
+
+        # Build results sorted by FTS5 rank (lower = better match)
+        results = []
+        for email_obj in emails:
+            fts_data = fts_lookup.get(email_obj.id)
+            if not fts_data:
+                continue
+
+            # Convert BM25 rank (negative, lower=better) to a 0-1 score
+            raw_rank = fts_data["rank"]
+            score = 1.0 / (1.0 - raw_rank) if raw_rank < 0 else 1.0
+
+            highlights: dict[str, list[str]] = {"subject": [], "body": []}
+            if fts_data.get("snippet_subject"):
+                highlights["subject"].append(fts_data["snippet_subject"])
+            if fts_data.get("snippet_body"):
+                highlights["body"].append(fts_data["snippet_body"])
+
+            results.append(
+                SearchResult(
+                    email=email_obj,
+                    score=score,
+                    match_type="fts5",
+                    highlights=highlights,
+                )
+            )
+
+        # Sort by score descending (highest relevance first)
+        results.sort(key=lambda r: r.score, reverse=True)
+
+        return results[offset : offset + limit]
+
+    def _like_search(
         self,
         query: SearchQuery,
         limit: int,
         offset: int,
         order_by: str,
     ) -> list[SearchResult]:
-        """Perform keyword-based search using SQLite."""
+        """Perform keyword-based search using SQLite LIKE (fallback)."""
         conditions = []
 
         # Free text search (subject + body)
@@ -266,12 +380,8 @@ class SearchEngine:
         if conditions:
             stmt = stmt.where(and_(*conditions))
 
-        # Order
-        if order_by == "date":
-            stmt = stmt.order_by(Email.date.desc())
-        else:
-            # For keyword search, newest is "most relevant"
-            stmt = stmt.order_by(Email.date.desc())
+        # Order by date (newest first) - for keyword search, recency serves as relevance
+        stmt = stmt.order_by(Email.date.desc())
 
         stmt = stmt.limit(limit).offset(offset)
 

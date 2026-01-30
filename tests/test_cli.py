@@ -7,14 +7,11 @@ These tests verify the CLI interface works correctly:
 - Help text
 """
 
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 from typer.testing import CliRunner
 
 from mtk.cli.main import app
-from mtk.core.database import Database
 
 
 runner = CliRunner()

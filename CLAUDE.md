@@ -52,7 +52,7 @@ ruff format src/mtk tests
 - `engine.py` - SearchEngine with keyword search (SQLite LIKE), semantic search (sentence-transformers embeddings), and Gmail-like query operators (from:, to:, subject:, after:, before:, tag:, has:attachment)
 
 ### Export (`src/mtk/export/`)
-- `base.py` - BaseExporter and ExportResult
+- `base.py` - Exporter (ABC) and ExportResult
 - `json_export.py`, `mbox_export.py`, `markdown_export.py` - Format-specific exporters with privacy filter support
 
 ### LLM Integration (`src/mtk/llm/`)

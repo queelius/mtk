@@ -9,10 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterator
-
-if TYPE_CHECKING:
-    pass
+from typing import Iterator
 
 # Try to import notmuch2, but allow graceful fallback
 try:

@@ -25,12 +25,9 @@ from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
-from rich.syntax import Syntax
-from rich.text import Text
 
 from mtk import __version__
 from mtk.core.config import MtkConfig
@@ -55,7 +52,7 @@ def get_db() -> Database:
 def format_date(dt: datetime | None) -> str:
     """Format datetime for display."""
     if not dt:
-        return "?"
+        return "N/A"
     return dt.strftime("%Y-%m-%d %H:%M")
 
 
@@ -526,7 +523,7 @@ def _run_import(path: Path, db: Database) -> None:
     from mtk.importers import MaildirImporter, MboxImporter, EmlImporter
 
     if path.is_file():
-        if path.suffix.lower() == ".mbox" or path.name.endswith(".mbox"):
+        if path.suffix.lower() == ".mbox":
             importer = MboxImporter(path)
         else:
             importer = EmlImporter(path)
@@ -908,32 +905,76 @@ def stats(json: bool = typer.Option(False, "--json", "-j")) -> None:
             select(func.min(Email.date), func.max(Email.date))
         ).one()
 
-        if json:
-            data = {
-                "emails": email_count,
-                "people": person_count,
-                "threads": thread_count,
-                "tags": tag_count,
-                "attachments": attachment_count,
-                "date_from": date_result[0].isoformat() if date_result[0] else None,
-                "date_to": date_result[1].isoformat() if date_result[1] else None,
-            }
-            print(json_lib.dumps(data, indent=2))
-            return
+    # FTS5 stats (outside session context — uses engine directly)
+    from mtk.search import fts_stats as get_fts_stats
 
-        panel = Panel.fit(
-            f"""[bold]Email Archive Statistics[/bold]
+    fts_info = get_fts_stats(db.engine)
 
-📧 Emails:      {email_count:,}
-👥 People:      {person_count:,}
-💬 Threads:     {thread_count:,}
-🏷️  Tags:        {tag_count:,}
-📎 Attachments: {attachment_count:,}
+    if json:
+        data = {
+            "emails": email_count,
+            "people": person_count,
+            "threads": thread_count,
+            "tags": tag_count,
+            "attachments": attachment_count,
+            "date_from": date_result[0].isoformat() if date_result[0] else None,
+            "date_to": date_result[1].isoformat() if date_result[1] else None,
+            "fts5": fts_info,
+        }
+        print(json_lib.dumps(data, indent=2))
+        return
 
-📅 Date Range:  {date_result[0] or 'N/A'} to {date_result[1] or 'N/A'}""",
-            title="mtk",
-        )
-        console.print(panel)
+    fts_status = "[green]Active[/green]" if fts_info["available"] else "[yellow]Unavailable[/yellow]"
+    fts_line = f"\nFTS5 Search: {fts_status}"
+    if fts_info["available"]:
+        fts_line += f" ({fts_info['indexed_count']:,} indexed)"
+        if not fts_info["in_sync"]:
+            fts_line += " [yellow](out of sync)[/yellow]"
+
+    panel = Panel.fit(
+        f"""[bold]Email Archive Statistics[/bold]
+
+Emails:      {email_count:,}
+People:      {person_count:,}
+Threads:     {thread_count:,}
+Tags:        {tag_count:,}
+Attachments: {attachment_count:,}
+
+Date Range:  {date_result[0] or 'N/A'} to {date_result[1] or 'N/A'}
+{fts_line}""",
+        title="mtk",
+    )
+    console.print(panel)
+
+
+# === Rebuild Index Command ===
+@app.command("rebuild-index")
+def rebuild_index(
+    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+) -> None:
+    """Rebuild FTS5 full-text search index.
+
+    Recreates the search index from all emails in the database.
+    Run this after bulk imports or if search results seem stale.
+    """
+    from mtk.search import rebuild_fts_index, fts_stats
+
+    db = get_db()
+    db.create_tables()
+
+    count = rebuild_fts_index(db.engine)
+    stats_data = fts_stats(db.engine)
+
+    if json:
+        print(json_lib.dumps({
+            "indexed": count,
+            "fts5_available": stats_data["available"],
+            "in_sync": stats_data["in_sync"],
+        }, indent=2))
+    else:
+        console.print(f"[green]Rebuilt FTS5 index: {count} emails indexed[/green]")
+        if stats_data["in_sync"]:
+            console.print("[dim]Index is in sync with email database[/dim]")
 
 
 # === Threads Command ===
@@ -1028,6 +1069,15 @@ def tag(
             if not json:
                 console.print(f"[yellow]Removed tags: {', '.join(remove)}[/yellow]")
 
+        # Queue tag changes for IMAP push if email is IMAP-tracked
+        if email.imap_account:
+            from mtk.imap.push import queue_tag_change
+
+            for tag_name in (add or []):
+                queue_tag_change(session, email.id, email.imap_account, "add", tag_name)
+            for tag_name in (remove or []):
+                queue_tag_change(session, email.id, email.imap_account, "remove", tag_name)
+
         session.commit()
 
         current_tags = [t.name for t in email.tags]
@@ -1108,6 +1158,40 @@ export_app = typer.Typer(help="Export emails to various formats")
 app.add_typer(export_app, name="export")
 
 
+def _prepare_export(
+    session, query: str | None, apply_privacy: bool
+) -> tuple[list, "PrivacyFilter | None"]:
+    """Shared setup for export commands: build privacy filter and fetch emails.
+
+    Args:
+        session: SQLAlchemy session.
+        query: Optional search query to filter emails.
+        apply_privacy: Whether to create a privacy filter.
+
+    Returns:
+        Tuple of (emails list, privacy filter or None).
+    """
+    from sqlalchemy import select
+    from mtk.core.models import Email
+    from mtk.core.config import PrivacyConfig
+    from mtk.core.privacy import PrivacyFilter
+    from mtk.search import SearchEngine
+
+    privacy_filter = None
+    if apply_privacy:
+        privacy_config = PrivacyConfig.load()
+        privacy_filter = PrivacyFilter(privacy_config)
+
+    if query:
+        engine = SearchEngine(session)
+        results = engine.search(query, limit=100000)
+        emails = [r.email for r in results]
+    else:
+        emails = list(session.execute(select(Email)).scalars())
+
+    return emails, privacy_filter
+
+
 @export_app.command("json")
 def export_json(
     output: Path = typer.Argument(..., help="Output file path"),
@@ -1117,27 +1201,11 @@ def export_json(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
     """Export emails to JSON format."""
-    from sqlalchemy import select
-    from mtk.core.models import Email
-    from mtk.core.config import PrivacyConfig
-    from mtk.core.privacy import PrivacyFilter
     from mtk.export import JsonExporter
-    from mtk.search import SearchEngine
-
-    privacy_filter = None
-    if apply_privacy:
-        privacy_config = PrivacyConfig.load()
-        privacy_filter = PrivacyFilter(privacy_config)
 
     db = get_db()
     with db.session() as session:
-        if query:
-            engine = SearchEngine(session)
-            results = engine.search(query, limit=100000)
-            emails = [r.email for r in results]
-        else:
-            emails = list(session.execute(select(Email)).scalars())
-
+        emails, privacy_filter = _prepare_export(session, query, apply_privacy)
         exporter = JsonExporter(output, privacy_filter=privacy_filter, pretty=pretty)
         result = exporter.export(emails)
 
@@ -1157,27 +1225,11 @@ def export_mbox(
     json: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
     """Export emails to mbox format."""
-    from sqlalchemy import select
-    from mtk.core.models import Email
-    from mtk.core.config import PrivacyConfig
-    from mtk.core.privacy import PrivacyFilter
     from mtk.export import MboxExporter
-    from mtk.search import SearchEngine
-
-    privacy_filter = None
-    if apply_privacy:
-        privacy_config = PrivacyConfig.load()
-        privacy_filter = PrivacyFilter(privacy_config)
 
     db = get_db()
     with db.session() as session:
-        if query:
-            engine = SearchEngine(session)
-            results = engine.search(query, limit=100000)
-            emails = [r.email for r in results]
-        else:
-            emails = list(session.execute(select(Email)).scalars())
-
+        emails, privacy_filter = _prepare_export(session, query, apply_privacy)
         exporter = MboxExporter(output, privacy_filter=privacy_filter)
         result = exporter.export(emails)
 
@@ -1198,27 +1250,11 @@ def export_markdown(
     json: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
     """Export emails to Markdown files."""
-    from sqlalchemy import select
-    from mtk.core.models import Email
-    from mtk.core.config import PrivacyConfig
-    from mtk.core.privacy import PrivacyFilter
     from mtk.export import MarkdownExporter
-    from mtk.search import SearchEngine
-
-    privacy_filter = None
-    if apply_privacy:
-        privacy_config = PrivacyConfig.load()
-        privacy_filter = PrivacyFilter(privacy_config)
 
     db = get_db()
     with db.session() as session:
-        if query:
-            engine = SearchEngine(session)
-            results = engine.search(query, limit=100000)
-            emails = [r.email for r in results]
-        else:
-            emails = list(session.execute(select(Email)).scalars())
-
+        emails, privacy_filter = _prepare_export(session, query, apply_privacy)
         exporter = MarkdownExporter(
             output, privacy_filter=privacy_filter, group_by_thread=threads
         )
@@ -1396,6 +1432,57 @@ Available models: {', '.join(models) or 'None'}""",
         ))
 
 
+def _find_email_for_llm(session, message_id: str, json_output: bool):
+    """Find an email by message_id and return it, or exit with error.
+
+    Args:
+        session: SQLAlchemy session.
+        message_id: Full or partial message ID.
+        json_output: Whether to output errors as JSON.
+
+    Returns:
+        The Email object if found (otherwise exits the process).
+    """
+    from sqlalchemy import select
+    from mtk.core.models import Email
+
+    email = session.execute(
+        select(Email).where(Email.message_id.contains(message_id))
+    ).scalar()
+
+    if not email:
+        if json_output:
+            print(json_lib.dumps({"error": f"Email not found: {message_id}"}, indent=2))
+        else:
+            console.print(f"[red]Email not found: {message_id}[/red]")
+        raise typer.Exit(1)
+
+    return email
+
+
+def _get_llm_provider(model: str, json_output: bool):
+    """Create an OllamaProvider and verify it is available.
+
+    Args:
+        model: Ollama model name.
+        json_output: Whether to output errors as JSON.
+
+    Returns:
+        OllamaProvider instance (exits the process if unavailable).
+    """
+    from mtk.llm import OllamaProvider
+
+    provider = OllamaProvider(model=model)
+    if not provider.is_available():
+        if json_output:
+            print(json_lib.dumps({"error": "Ollama not available"}, indent=2))
+        else:
+            console.print("[red]Ollama not available. Is it running?[/red]")
+        raise typer.Exit(1)
+
+    return provider
+
+
 @llm_app.command("classify")
 def llm_classify(
     message_id: str = typer.Argument(..., help="Message ID to classify"),
@@ -1408,30 +1495,12 @@ def llm_classify(
     json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
 ) -> None:
     """Classify an email using LLM."""
-    from sqlalchemy import select
-    from mtk.core.models import Email
-    from mtk.llm import OllamaProvider, EmailClassifier
+    from mtk.llm import EmailClassifier
 
     db = get_db()
     with db.session() as session:
-        email = session.execute(
-            select(Email).where(Email.message_id.contains(message_id))
-        ).scalar()
-
-        if not email:
-            if json:
-                print(json_lib.dumps({"error": f"Email not found: {message_id}"}, indent=2))
-            else:
-                console.print(f"[red]Email not found: {message_id}[/red]")
-            raise typer.Exit(1)
-
-        provider = OllamaProvider(model=model)
-        if not provider.is_available():
-            if json:
-                print(json_lib.dumps({"error": "Ollama not available"}, indent=2))
-            else:
-                console.print("[red]Ollama not available. Is it running?[/red]")
-            raise typer.Exit(1)
+        email = _find_email_for_llm(session, message_id, json)
+        provider = _get_llm_provider(model, json)
 
         classifier = EmailClassifier(provider)
         cat_list = [c.strip() for c in categories.split(",")]
@@ -1454,30 +1523,12 @@ def llm_summarize(
     json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
 ) -> None:
     """Summarize an email using LLM."""
-    from sqlalchemy import select
-    from mtk.core.models import Email
-    from mtk.llm import OllamaProvider, EmailClassifier
+    from mtk.llm import EmailClassifier
 
     db = get_db()
     with db.session() as session:
-        email = session.execute(
-            select(Email).where(Email.message_id.contains(message_id))
-        ).scalar()
-
-        if not email:
-            if json:
-                print(json_lib.dumps({"error": f"Email not found: {message_id}"}, indent=2))
-            else:
-                console.print(f"[red]Email not found: {message_id}[/red]")
-            raise typer.Exit(1)
-
-        provider = OllamaProvider(model=model)
-        if not provider.is_available():
-            if json:
-                print(json_lib.dumps({"error": "Ollama not available"}, indent=2))
-            else:
-                console.print("[red]Ollama not available. Is it running?[/red]")
-            raise typer.Exit(1)
+        email = _find_email_for_llm(session, message_id, json)
+        provider = _get_llm_provider(model, json)
 
         classifier = EmailClassifier(provider)
         result = classifier.summarize(email)
@@ -1504,30 +1555,12 @@ def llm_actions(
     json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
 ) -> None:
     """Extract action items from an email using LLM."""
-    from sqlalchemy import select
-    from mtk.core.models import Email
-    from mtk.llm import OllamaProvider, EmailClassifier
+    from mtk.llm import EmailClassifier
 
     db = get_db()
     with db.session() as session:
-        email = session.execute(
-            select(Email).where(Email.message_id.contains(message_id))
-        ).scalar()
-
-        if not email:
-            if json:
-                print(json_lib.dumps({"error": f"Email not found: {message_id}"}, indent=2))
-            else:
-                console.print(f"[red]Email not found: {message_id}[/red]")
-            raise typer.Exit(1)
-
-        provider = OllamaProvider(model=model)
-        if not provider.is_available():
-            if json:
-                print(json_lib.dumps({"error": "Ollama not available"}, indent=2))
-            else:
-                console.print("[red]Ollama not available. Is it running?[/red]")
-            raise typer.Exit(1)
+        email = _find_email_for_llm(session, message_id, json)
+        provider = _get_llm_provider(model, json)
 
         classifier = EmailClassifier(provider)
         actions = classifier.extract_actions(email)
@@ -1748,6 +1781,36 @@ def notmuch_import_cmd(
         console.print(f"  Tags imported: {result.tags_added}")
         if result.errors:
             console.print(f"[yellow]Errors: {len(result.errors)}[/yellow]")
+
+
+# === IMAP Commands ===
+from mtk.cli.imap_cli import imap_app
+app.add_typer(imap_app, name="imap")
+
+
+# === MCP Command ===
+@app.command()
+def mcp(
+    transport: str = typer.Option("stdio", "--transport", "-t", help="Transport: stdio"),
+) -> None:
+    """Start MCP server for Claude Code integration.
+
+    Exposes email archive as MCP tools (search, read, tag, etc.).
+    Configure in .mcp.json or run directly.
+    """
+    try:
+        from mtk.mcp import run_server
+    except ImportError:
+        console.print("[red]MCP support requires the mcp package.[/red]")
+        console.print("Install with: pip install mtk[mcp]")
+        raise typer.Exit(1)
+
+    if transport != "stdio":
+        console.print(f"[red]Unsupported transport: {transport}[/red]")
+        console.print("Currently only 'stdio' is supported.")
+        raise typer.Exit(1)
+
+    run_server()
 
 
 # === Shell Command ===

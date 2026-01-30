@@ -60,6 +60,10 @@ class Database:
     def create_tables(self) -> None:
         """Create all database tables."""
         Base.metadata.create_all(self.engine)
+        # Set up FTS5 full-text search index and triggers
+        from mtk.search.fts import setup_fts5
+
+        setup_fts5(self.engine)
 
     def drop_tables(self) -> None:
         """Drop all database tables."""

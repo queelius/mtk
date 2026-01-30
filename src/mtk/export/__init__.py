@@ -1,6 +1,6 @@
 """Email export functionality for mtk.
 
-Supports multiple formats: mbox, JSON, Markdown, EML.
+Supports multiple formats: JSON, mbox, and Markdown.
 Integrates with privacy filtering for safe exports.
 """
 

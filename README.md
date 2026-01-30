@@ -148,60 +148,46 @@ mtk export longecho                      # Unified format
 
 ## Data Model
 
+SQLAlchemy ORM models stored in SQLite:
+
 ```python
-@dataclass
-class Email:
-    id: str                    # Message-ID
-    thread_id: str             # Thread identifier
-
-    # Headers
+class Email(Base):
+    message_id: str            # Message-ID (unique)
+    thread_id: str | None      # FK to Thread
     from_addr: str
-    to_addrs: list[str]
-    cc_addrs: list[str]
-    subject: str
+    from_name: str | None
+    subject: str | None
     date: datetime
-
-    # Content
-    body_text: str             # Plain text version
-    body_html: str | None      # HTML version
-    attachments: list[Attachment]
-
-    # notmuch integration
-    notmuch_tags: list[str]
-
-    # mtk enhancements
-    embedding: bytes           # For semantic search
+    in_reply_to: str | None
+    references: str | None     # Space-separated message IDs
+    body_text: str | None
+    body_html: str | None
+    body_preview: str | None
+    embedding: bytes | None    # For semantic search
     summary: str | None        # AI-generated summary
-    people: list[Person]       # Resolved people references
+    export_allowed: bool       # Privacy control
+    # Relationships: thread, sender, attachments, tags
 
-    # Privacy
-    export_allowed: bool       # Based on privacy rules
-    redactions: list[str]      # Patterns to redact
-
-@dataclass
-class Person:
-    id: str
+class Person(Base):
     name: str
-    emails: list[str]          # All known email addresses
-    relationship: str          # "family", "friend", "colleague", etc.
-
-    # Statistics
+    primary_email: str | None
+    relationship_type: str | None  # "family", "friend", "colleague", etc.
     email_count: int
-    first_contact: datetime
-    last_contact: datetime
+    first_contact: datetime | None
+    last_contact: datetime | None
+    # Relationships: email_addresses (PersonEmail), sent_emails
 
-    # Topics
-    common_topics: list[str]   # What do you discuss?
-
-@dataclass
-class Thread:
-    id: str
-    subject: str
-    participants: list[Person]
+class Thread(Base):
+    thread_id: str             # Unique thread identifier
+    subject: str | None
     email_count: int
-    date_range: tuple[datetime, datetime]
+    first_date: datetime | None
+    last_date: datetime | None
     summary: str | None
+    # Relationships: emails
 ```
+
+Additional models: `Tag`, `Attachment`, `Annotation`, `Collection`, `PrivacyRule`, `TopicCluster`, `PersonEmail`, `CustomField`.
 
 ## Privacy Controls
 
@@ -281,9 +267,9 @@ mtk does not replace notmuch — it enhances it:
 
 ## Technical Notes
 
-### notmuch Dependency
+### notmuch Integration (Optional)
 
-mtk requires notmuch to be installed:
+notmuch is optional. mtk can import emails directly from Maildir, mbox, and EML files without notmuch. Install notmuch for bidirectional tag sync and notmuch-based import:
 
 ```bash
 # Debian/Ubuntu
@@ -326,13 +312,13 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-## Dependencies (Planned)
+## Dependencies
 
-- **notmuch** — Core mail indexing (required)
-- **notmuch Python bindings** — `notmuch2` package
-- **sentence-transformers** — Embeddings
-- **faiss** — Vector search
-- **ollama** (optional) — Summarization
+- **SQLAlchemy** — ORM and database layer (required)
+- **typer + rich** — CLI framework (required)
+- **notmuch + notmuch2** — Mail indexing integration (optional, `pip install mtk[notmuch]`)
+- **sentence-transformers** — Embeddings for semantic search (optional, `pip install mtk[semantic]`)
+- **ollama** — Local LLM for classification/summarization (optional)
 
 ## License
 
