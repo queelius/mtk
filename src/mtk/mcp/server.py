@@ -1,31 +1,201 @@
-"""MCP server setup, tool/resource registration, and dispatch.
+"""MCP server with pure-SQL interface: run_sql + get_schema.
 
-Exposes mtk as a full-access MCP tool server for Claude Code.
+Exposes the mtk SQLite database via two tools, letting LLMs query
+and (optionally) mutate the archive using plain SQL.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from mcp.server import Server
-from mcp.types import (
-    Resource,
-    ResourceTemplate,
-    TextContent,
-    TextResourceContents,
-    Tool,
-)
+from mcp.types import TextContent, Tool
 
 from mtk.core.config import MtkConfig
 from mtk.core.database import Database
-from mtk.mcp.resources import (
-    RESOURCE_HANDLERS,
-    read_stats_resource,
+
+# ---------------------------------------------------------------------------
+# Table descriptions (human-readable, for LLM context)
+# ---------------------------------------------------------------------------
+
+TABLE_DESCRIPTIONS: dict[str, str] = {
+    "emails": "Email messages with headers, content, and metadata",
+    "persons": "People with potentially multiple email addresses",
+    "person_emails": "Maps email addresses to persons (one person can have multiple addresses)",
+    "threads": "Email threads/conversations grouping related emails",
+    "tags": "Tags applied to emails (synced from notmuch or created in mtk)",
+    "email_tags": "Association table linking emails to tags (many-to-many)",
+    "email_recipients": "Association table for email recipients (To/CC/BCC)",
+    "attachments": "Email attachment metadata (filename, type, size)",
+    "annotations": "User annotations/notes on emails, threads, or persons",
+    "collections": "User-defined email collections (manual or smart query-based)",
+    "collection_emails": "Association table linking collections to emails",
+    "privacy_rules": "Privacy rules for filtering/redacting during export",
+    "custom_fields": "Flexible key-value metadata storage on emails",
+    "imap_sync_state": "IMAP sync state per account/folder for incremental sync",
+    "imap_pending_push": "Queue of tag changes to push to IMAP on next sync",
+    "emails_fts": (
+        "FTS5 full-text search index on emails (subject, body_text, from_addr, from_name). "
+        "Query with: SELECT * FROM emails_fts WHERE emails_fts MATCH 'search terms'"
+    ),
+}
+
+QUERY_TIPS: list[str] = [
+    "Use emails_fts for full-text search: SELECT * FROM emails_fts WHERE emails_fts MATCH 'term'",
+    "Join emails to tags via email_tags: SELECT e.* FROM emails e JOIN email_tags et ON e.id = et.email_id JOIN tags t ON et.tag_id = t.id WHERE t.name = 'inbox'",
+    "Find person's emails: SELECT e.* FROM emails e JOIN person_emails pe ON e.from_addr = pe.email WHERE pe.person_id = ?",
+    "Thread conversation: SELECT * FROM emails WHERE thread_id = ? ORDER BY date",
+    "Date filtering: SELECT * FROM emails WHERE date >= '2024-01-01' AND date < '2024-02-01'",
+    "FTS5 supports prefix queries: MATCH 'proj*' and phrase queries: MATCH '\"exact phrase\"'",
+    "Count by sender: SELECT from_addr, COUNT(*) as cnt FROM emails GROUP BY from_addr ORDER BY cnt DESC",
+]
+
+# ---------------------------------------------------------------------------
+# Tool definitions (JSON Schema for MCP input validation)
+# ---------------------------------------------------------------------------
+
+TOOL_DEFINITIONS: list[dict[str, Any]] = [
+    {
+        "name": "get_schema",
+        "description": "Get the full database schema as JSON, including table DDL, column details, descriptions, and query tips.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "run_sql",
+        "description": "Execute a SQL query against the mtk email archive database. Returns JSON array of row objects for SELECT, or affected_rows for writes.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "sql": {
+                    "type": "string",
+                    "description": "SQL query to execute",
+                },
+                "readonly": {
+                    "type": "boolean",
+                    "description": "If true (default), block INSERT/UPDATE/DELETE/REPLACE. DDL is always blocked.",
+                    "default": True,
+                },
+            },
+            "required": ["sql"],
+        },
+    },
+]
+
+# ---------------------------------------------------------------------------
+# Regex patterns for SQL safety
+# ---------------------------------------------------------------------------
+
+_DDL_PATTERN = re.compile(
+    r"\b(DROP|ALTER|CREATE|ATTACH|DETACH)\b", re.IGNORECASE
 )
-from mtk.mcp.tools import TOOL_HANDLERS
+_WRITE_PATTERN = re.compile(
+    r"\b(INSERT|UPDATE|DELETE|REPLACE)\b", re.IGNORECASE
+)
+
+
+# ---------------------------------------------------------------------------
+# Tool implementations (module-level, testable independently)
+# ---------------------------------------------------------------------------
+
+
+def get_schema(session: Any) -> str:
+    """Return full database schema as a JSON string.
+
+    Reads sqlite_master for DDL, PRAGMA table_info for columns on regular
+    tables, and includes human-readable descriptions and query tips.
+    """
+    conn = session.connection()
+    raw = conn.connection.driver_connection  # unwrap to raw dbapi connection
+
+    tables: dict[str, Any] = {}
+
+    # Get all tables and views from sqlite_master
+    cursor = raw.execute(
+        "SELECT type, name, sql FROM sqlite_master "
+        "WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' "
+        "ORDER BY name"
+    )
+    for row_type, name, ddl in cursor.fetchall():
+        entry: dict[str, Any] = {
+            "type": row_type,
+            "ddl": ddl,
+            "description": TABLE_DESCRIPTIONS.get(name, ""),
+        }
+
+        # Add column details for regular tables (not views, not FTS virtual tables)
+        if row_type == "table" and not (ddl and "VIRTUAL TABLE" in ddl.upper()):
+            col_cursor = raw.execute(f"PRAGMA table_info('{name}')")
+            columns = []
+            for col_row in col_cursor.fetchall():
+                columns.append(
+                    {
+                        "name": col_row[1],
+                        "type": col_row[2],
+                        "notnull": bool(col_row[3]),
+                        "default": col_row[4],
+                        "pk": bool(col_row[5]),
+                    }
+                )
+            entry["columns"] = columns
+
+        tables[name] = entry
+
+    result = {
+        "tables": tables,
+        "tips": QUERY_TIPS,
+    }
+    return json.dumps(result)
+
+
+def run_sql(session: Any, sql: str, readonly: bool = True) -> str:
+    """Execute SQL and return results as a JSON string.
+
+    For SELECT/PRAGMA: returns a JSON array of row objects.
+    For writes (when readonly=False): returns {"affected_rows": N}.
+    On error: returns {"error": "message"}.
+    DDL (DROP/ALTER/CREATE/ATTACH/DETACH) is always blocked.
+    """
+    # Always block DDL
+    if _DDL_PATTERN.search(sql):
+        return json.dumps({"error": "DDL statements (DROP/ALTER/CREATE/ATTACH/DETACH) are not allowed"})
+
+    # Block writes in readonly mode
+    if readonly and _WRITE_PATTERN.search(sql):
+        return json.dumps({"error": "Write statements (INSERT/UPDATE/DELETE/REPLACE) are blocked in readonly mode. Set readonly=false to allow."})
+
+    try:
+        conn = session.connection()
+        raw = conn.connection.driver_connection  # unwrap to raw dbapi connection
+        cursor = raw.execute(sql)
+
+        # If it's a write operation (non-readonly), commit and return affected rows
+        if _WRITE_PATTERN.search(sql):
+            raw.commit()
+            return json.dumps({"affected_rows": cursor.rowcount})
+
+        # SELECT or PRAGMA — return rows as JSON array of dicts
+        if cursor.description:
+            columns = [desc[0] for desc in cursor.description]
+            rows = [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+            return json.dumps(rows, default=str)
+
+        # Statement produced no results (e.g., empty PRAGMA)
+        return json.dumps([])
+
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Server factory
+# ---------------------------------------------------------------------------
 
 
 def _get_db_path() -> Path:
@@ -41,214 +211,13 @@ def _get_db_path() -> Path:
     return MtkConfig.default_data_dir() / "mtk.db"
 
 
-def _get_privacy_filter():
-    """Load privacy filter (None if disabled via env)."""
-    if os.environ.get("MTK_MCP_SKIP_PRIVACY", "").strip() == "1":
-        return None
-
-    from mtk.core.config import PrivacyConfig
-    from mtk.core.privacy import PrivacyFilter
-
-    privacy_config = PrivacyConfig.load()
-    return PrivacyFilter(privacy_config)
-
-
-# ---------------------------------------------------------------------------
-# Tool definitions (JSON Schema for input)
-# ---------------------------------------------------------------------------
-
-TOOL_DEFINITIONS: list[dict[str, Any]] = [
-    {
-        "name": "search_emails",
-        "description": "Search emails using query string. Supports operators: from:, to:, subject:, after:YYYY-MM-DD, before:YYYY-MM-DD, tag:, has:attachment",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search query"},
-                "limit": {
-                    "type": "integer",
-                    "description": "Max results (default 20)",
-                    "default": 20,
-                },
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "get_inbox",
-        "description": "Get recent emails (inbox view)",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "description": "Max results (default 20)",
-                    "default": 20,
-                },
-                "since": {"type": "string", "description": "Show emails since date (YYYY-MM-DD)"},
-            },
-        },
-    },
-    {
-        "name": "get_stats",
-        "description": "Get email archive statistics (counts, date range)",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "show_email",
-        "description": "Show a single email with full content by message ID",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "message_id": {"type": "string", "description": "Message ID (full or partial)"},
-            },
-            "required": ["message_id"],
-        },
-    },
-    {
-        "name": "show_thread",
-        "description": "Show full thread conversation by thread ID or message ID",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "thread_id": {"type": "string", "description": "Thread ID or message ID"},
-            },
-            "required": ["thread_id"],
-        },
-    },
-    {
-        "name": "get_reply_context",
-        "description": "Get context for composing a reply (original email, thread history, suggested headers)",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "message_id": {"type": "string", "description": "Message ID to reply to"},
-            },
-            "required": ["message_id"],
-        },
-    },
-    {
-        "name": "tag_email",
-        "description": "Add or remove tags from a single email",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "message_id": {"type": "string", "description": "Message ID"},
-                "add": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Tags to add",
-                },
-                "remove": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Tags to remove",
-                },
-            },
-            "required": ["message_id"],
-        },
-    },
-    {
-        "name": "tag_batch",
-        "description": "Add or remove tags from all emails matching a search query",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search query to match emails"},
-                "add": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Tags to add",
-                },
-                "remove": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Tags to remove",
-                },
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "list_tags",
-        "description": "List all tags in the archive with email counts",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "list_people",
-        "description": "List top correspondents by email count",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "description": "Max results (default 20)",
-                    "default": 20,
-                },
-            },
-        },
-    },
-    {
-        "name": "show_person",
-        "description": "Show detailed info for a specific person",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "person_id": {"type": "integer", "description": "Person ID"},
-            },
-            "required": ["person_id"],
-        },
-    },
-    {
-        "name": "get_correspondence_timeline",
-        "description": "Get email count over time for a correspondent",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "person_id": {"type": "integer", "description": "Person ID"},
-                "granularity": {
-                    "type": "string",
-                    "enum": ["day", "week", "month", "year"],
-                    "description": "Time granularity (default: month)",
-                    "default": "month",
-                },
-            },
-            "required": ["person_id"],
-        },
-    },
-    {
-        "name": "notmuch_sync",
-        "description": "Run notmuch sync operations (status, pull, push, sync)",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["status", "pull", "push", "sync"],
-                    "description": "Sync action to perform (default: status)",
-                    "default": "status",
-                },
-                "strategy": {
-                    "type": "string",
-                    "enum": ["merge", "notmuch-wins", "mtk-wins"],
-                    "description": "Sync strategy (for sync action)",
-                    "default": "merge",
-                },
-            },
-        },
-    },
-]
-
-
 def create_server() -> Server:
-    """Create and configure the MCP server."""
+    """Create and configure the MCP server with run_sql and get_schema tools."""
     server = Server("mtk")
 
     db_path = _get_db_path()
     db = Database(db_path)
     db.create_tables()
-    # Privacy filter loaded here for future content filtering
-    _get_privacy_filter()
 
     @server.list_tools()
     async def handle_list_tools() -> list[Tool]:
@@ -264,78 +233,19 @@ def create_server() -> Server:
     @server.call_tool()
     async def handle_call_tool(name: str, arguments: dict | None) -> list[TextContent]:
         arguments = arguments or {}
-        handler = TOOL_HANDLERS.get(name)
-        if not handler:
-            return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
-        with db.session() as session:
-            raw_results = handler(session, arguments)
+        if name == "get_schema":
+            with db.session() as session:
+                result = get_schema(session)
+            return [TextContent(type="text", text=result)]
 
-        # Convert raw dicts to TextContent
-        return [
-            TextContent(type="text", text=r["text"]) if isinstance(r, dict) else r
-            for r in raw_results
-        ]
+        if name == "run_sql":
+            sql_str = arguments.get("sql", "")
+            readonly = arguments.get("readonly", True)
+            with db.session() as session:
+                result = run_sql(session, sql_str, readonly=readonly)
+            return [TextContent(type="text", text=result)]
 
-    @server.list_resources()
-    async def handle_list_resources() -> list[Resource]:
-        return [
-            Resource(
-                uri="mtk://stats",
-                name="Archive Statistics",
-                description="Email archive statistics",
-                mimeType="application/json",
-            ),
-        ]
-
-    @server.list_resource_templates()
-    async def handle_list_resource_templates() -> list[ResourceTemplate]:
-        return [
-            ResourceTemplate(
-                uriTemplate="mtk://email/{message_id}",
-                name="Email",
-                description="A single email by message ID",
-                mimeType="application/json",
-            ),
-            ResourceTemplate(
-                uriTemplate="mtk://thread/{thread_id}",
-                name="Thread",
-                description="A thread conversation",
-                mimeType="application/json",
-            ),
-            ResourceTemplate(
-                uriTemplate="mtk://person/{person_id}",
-                name="Person",
-                description="A person/correspondent",
-                mimeType="application/json",
-            ),
-        ]
-
-    @server.read_resource()
-    async def handle_read_resource(uri: str) -> list[TextResourceContents]:
-        parsed = urlparse(str(uri))
-        # URI format: mtk://resource_type/id
-        resource_type = parsed.netloc
-        resource_id = parsed.path.lstrip("/")
-
-        with db.session() as session:
-            if resource_type == "stats":
-                content = read_stats_resource(session)
-            else:
-                handler = RESOURCE_HANDLERS.get(resource_type)
-                if not handler:
-                    content = f'{{"error": "Unknown resource type: {resource_type}"}}'
-                else:
-                    content = handler(session, resource_id)
-                    if content is None:
-                        content = f'{{"error": "{resource_type} not found: {resource_id}"}}'
-
-        return [
-            TextResourceContents(
-                uri=str(uri),
-                mimeType="application/json",
-                text=content,
-            )
-        ]
+        return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
     return server
