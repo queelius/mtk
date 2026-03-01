@@ -26,7 +26,6 @@ from mtk.core.models import (
     PrivacyRule,
     Tag,
     Thread,
-    TopicCluster,
 )
 
 
@@ -731,21 +730,3 @@ class TestPrivacyRuleModel:
             session.commit()
 
 
-class TestTopicClusterModel:
-    """Tests for TopicCluster ORM model."""
-
-    def test_create_topic_cluster(self, session) -> None:
-        """Test creating topic clusters."""
-        cluster = TopicCluster(
-            name="Machine Learning",
-            description="Emails about ML topics",
-            keywords='["ml", "deep learning", "neural networks"]',
-            email_count=25,
-        )
-        session.add(cluster)
-        session.commit()
-
-        result = session.get(TopicCluster, cluster.id)
-        assert result.name == "Machine Learning"
-        assert result.email_count == 25
-        assert "ml" in result.keywords

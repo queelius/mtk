@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mtk"
 version = "0.1.0"
-description = "Mail Toolkit - Personal email archive management with semantic search and relationship mapping"
+description = "Mail Toolkit - Personal email archive management with full-text search and relationship mapping"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -37,10 +37,6 @@ dependencies = [
 notmuch = [
     "notmuch2>=0.38",
 ]
-semantic = [
-    "sentence-transformers>=2.2.0",
-    "faiss-cpu>=1.7.0",
-]
 mcp = [
     "mcp>=1.0.0",
 ]
@@ -58,7 +54,7 @@ dev = [
     "ruff>=0.1.0",
 ]
 all = [
-    "mtk[notmuch,semantic,mcp,imap,dev]",
+    "mtk[notmuch,mcp,imap,dev]",
 ]
 
 [project.scripts]

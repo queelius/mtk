@@ -2,9 +2,8 @@
 
 Provides multiple search modes:
 - Keyword search (SQLite LIKE pattern matching)
+- FTS5 ranked text search (when available)
 - Field-specific search (from, to, subject, date ranges)
-- Semantic search (embeddings + vector similarity)
-- Combined/hybrid search
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ class SearchResult:
 
     email: Email
     score: float = 1.0
-    match_type: str = "keyword"  # "keyword", "semantic", "hybrid"
+    match_type: str = "keyword"  # "keyword" or "fts5"
     highlights: dict[str, list[str]] = field(default_factory=dict)
 
 
@@ -56,9 +55,6 @@ class SearchQuery:
     # Thread
     thread_id: str | None = None
 
-    # Semantic search
-    semantic: bool = False
-
 
 class SearchEngine:
     """Search engine for email archive.
@@ -70,7 +66,6 @@ class SearchEngine:
 
     def __init__(self, session: Session) -> None:
         self.session = session
-        self._embedding_model = None
         self._fts5_checked = False
         self._fts5_ok = False
 
@@ -106,9 +101,7 @@ class SearchEngine:
         if isinstance(query, str):
             query = self.parse_query(query)
 
-        if query.semantic and query.text:
-            return self._semantic_search(query, limit, offset)
-        elif query.text and self._has_fts5() and order_by == "relevance":
+        if query.text and self._has_fts5() and order_by == "relevance":
             return self._fts5_search(query, limit, offset)
         else:
             return self._like_search(query, limit, offset, order_by)
@@ -126,7 +119,6 @@ class SearchEngine:
         - tag:tagname
         - -tag:tagname (exclude)
         - thread:id
-        - is:semantic (enable semantic search)
         - Remaining text is free-text search
 
         Args:
@@ -164,8 +156,6 @@ class SearchEngine:
                     query.not_tags.append(value)
                 elif operator == "thread":
                     query.thread_id = value
-                elif operator == "is" and value.lower() == "semantic":
-                    query.semantic = True
                 else:
                     # Unknown operator, treat as text
                     remaining_parts.append(token)
@@ -404,74 +394,6 @@ class SearchEngine:
 
         return results
 
-    def _semantic_search(
-        self,
-        query: SearchQuery,
-        limit: int,
-        offset: int,
-    ) -> list[SearchResult]:
-        """Perform semantic search using embeddings.
-
-        Requires sentence-transformers to be installed.
-        """
-        if not query.text:
-            return []
-
-        try:
-            import numpy as np
-            from sentence_transformers import SentenceTransformer
-        except ImportError as err:
-            raise ImportError(
-                "Semantic search requires sentence-transformers. "
-                "Install with: pip install mtk[semantic]"
-            ) from err
-
-        # Get or load embedding model
-        if self._embedding_model is None:
-            self._embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-
-        # Generate query embedding
-        query_embedding = self._embedding_model.encode(query.text)
-
-        # Get all emails with embeddings
-        stmt = select(Email).where(Email.embedding.isnot(None))
-
-        # Apply other filters
-        conditions = []
-        if query.date_from:
-            conditions.append(Email.date >= query.date_from)
-        if query.date_to:
-            conditions.append(Email.date <= query.date_to)
-        if query.from_addr:
-            conditions.append(Email.from_addr.ilike(f"%{query.from_addr}%"))
-        if conditions:
-            stmt = stmt.where(and_(*conditions))
-
-        emails = self.session.execute(stmt).scalars().all()
-
-        # Compute similarities
-        scored_emails = []
-        for email in emails:
-            if email.embedding:
-                email_embedding = np.frombuffer(email.embedding, dtype=np.float32)
-                similarity = np.dot(query_embedding, email_embedding) / (
-                    np.linalg.norm(query_embedding) * np.linalg.norm(email_embedding)
-                )
-                scored_emails.append((email, float(similarity)))
-
-        # Sort by similarity and return top results
-        scored_emails.sort(key=lambda x: x[1], reverse=True)
-        top_emails = scored_emails[offset : offset + limit]
-
-        return [
-            SearchResult(
-                email=email,
-                score=score,
-                match_type="semantic",
-            )
-            for email, score in top_emails
-        ]
-
     def _extract_highlights(self, email: Email, query_text: str) -> dict[str, list[str]]:
         """Extract highlighted snippets from email matching query text."""
         highlights: dict[str, list[str]] = {"subject": [], "body": []}
@@ -498,55 +420,3 @@ class SearchEngine:
                     break
 
         return highlights
-
-    def generate_embeddings(
-        self,
-        batch_size: int = 100,
-        model_name: str = "all-MiniLM-L6-v2",
-    ) -> int:
-        """Generate embeddings for all emails without embeddings.
-
-        Args:
-            batch_size: Number of emails to process at once.
-            model_name: sentence-transformers model name.
-
-        Returns:
-            Number of emails processed.
-        """
-        try:
-            import numpy as np
-            from sentence_transformers import SentenceTransformer
-        except ImportError as err:
-            raise ImportError(
-                "Embedding generation requires sentence-transformers. "
-                "Install with: pip install mtk[semantic]"
-            ) from err
-
-        model = SentenceTransformer(model_name)
-        processed = 0
-
-        # Get emails without embeddings
-        stmt = select(Email).where(Email.embedding.is_(None))
-
-        while True:
-            batch = self.session.execute(stmt.limit(batch_size)).scalars().all()
-            if not batch:
-                break
-
-            # Prepare texts
-            texts = []
-            for email in batch:
-                text = f"{email.subject or ''}\n\n{email.body_text or ''}"
-                texts.append(text[:8000])  # Limit text length
-
-            # Generate embeddings
-            embeddings = model.encode(texts)
-
-            # Store embeddings
-            for email, embedding in zip(batch, embeddings, strict=False):
-                email.embedding = embedding.astype(np.float32).tobytes()
-
-            self.session.commit()
-            processed += len(batch)
-
-        return processed

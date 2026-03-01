@@ -13,7 +13,6 @@ from mtk.core.models import (
     PrivacyRule,
     Tag,
     Thread,
-    TopicCluster,
 )
 
 __all__ = [
@@ -29,7 +28,6 @@ __all__ = [
     "Annotation",
     "Collection",
     "CustomField",
-    "TopicCluster",
     # Database
     "Database",
     "get_db",

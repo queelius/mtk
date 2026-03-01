@@ -14,7 +14,6 @@ class TestSearchQuery:
         query = engine.parse_query("hello world")
 
         assert query.text == "hello world"
-        assert not query.semantic
 
     def test_parse_from_operator(self) -> None:
         """Test parsing from: operator."""
@@ -41,14 +40,6 @@ class TestSearchQuery:
         assert "important" in query.has_tags
         # Note: -tag: is parsed separately
         assert query.text is None or "spam" not in query.text
-
-    def test_parse_semantic_flag(self) -> None:
-        """Test parsing semantic search flag."""
-        engine = SearchEngine(None)
-        query = engine.parse_query("is:semantic similar emails about vacation")
-
-        assert query.semantic
-        assert "vacation" in query.text
 
     def test_parse_multiple_operators(self) -> None:
         """Test parsing multiple operators together."""

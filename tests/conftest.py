@@ -563,8 +563,6 @@ def mock_config(tmp_dir: Path):
         config.db_path = tmp_dir / ".local" / "share" / "mtk" / "mtk.db"
         config.maildir = None
         config.auto_sync = True
-        config.generate_embeddings = False
-        config.generate_summaries = False
         mock_config_cls.load.return_value = config
         mock_config_cls.return_value = config
         yield config

@@ -20,8 +20,6 @@ class MtkConfig:
 
     # Behavior
     auto_sync: bool = True
-    generate_embeddings: bool = False  # Requires semantic extras
-    generate_summaries: bool = False  # Requires LLM
 
     # Privacy defaults
     default_export_allowed: bool = True
@@ -73,8 +71,6 @@ class MtkConfig:
             config.db_path = Path(data["db_path"]).expanduser()
 
         config.auto_sync = data.get("auto_sync", True)
-        config.generate_embeddings = data.get("generate_embeddings", False)
-        config.generate_summaries = data.get("generate_summaries", False)
         config.default_export_allowed = data.get("default_export_allowed", True)
 
         # IMAP accounts
@@ -90,8 +86,6 @@ class MtkConfig:
             "notmuch_config": str(self.notmuch_config) if self.notmuch_config else None,
             "db_path": str(self.db_path) if self.db_path else None,
             "auto_sync": self.auto_sync,
-            "generate_embeddings": self.generate_embeddings,
-            "generate_summaries": self.generate_summaries,
             "default_export_allowed": self.default_export_allowed,
         }
         if self.imap_accounts:

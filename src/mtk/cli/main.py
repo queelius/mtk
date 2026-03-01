@@ -728,7 +728,6 @@ def _run_import_with_importer(importer, db: Database, json_output: bool = False)
 def search(
     query: str = typer.Argument(..., help="Search query"),
     limit: int = typer.Option(20, "--limit", "-n"),
-    semantic: bool = typer.Option(False, "--semantic", "-s"),
     json: bool = typer.Option(False, "--json", "-j"),
 ) -> None:
     """Search emails in the archive.
@@ -736,9 +735,6 @@ def search(
     Operators: from:, to:, subject:, after:, before:, tag:, has:attachment
     """
     from mtk.search import SearchEngine
-
-    if semantic:
-        query = f"is:semantic {query}"
 
     db = get_db()
     with db.session() as session:
@@ -993,28 +989,6 @@ def rebuild_threads(
         console.print(f"[green]Built {thread_count} conversation threads[/green]")
     else:
         console.print("[yellow]No new threads to build[/yellow]")
-
-
-# === Embeddings Command ===
-@app.command()
-def embeddings(
-    batch_size: int = typer.Option(100, "--batch", "-b"),
-    model: str = typer.Option("all-MiniLM-L6-v2", "--model", "-m"),
-    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
-) -> None:
-    """Generate embeddings for semantic search."""
-    from mtk.search import SearchEngine
-
-    db = get_db()
-    with db.session() as session:
-        engine = SearchEngine(session)
-        if not json:
-            console.print("[blue]Generating embeddings...[/blue]")
-        count = engine.generate_embeddings(batch_size=batch_size, model_name=model)
-        if json:
-            print(json_lib.dumps({"generated": count, "model": model}, indent=2))
-        else:
-            console.print(f"[green]Generated embeddings for {count} emails[/green]")
 
 
 # === Tag Command ===

@@ -4,7 +4,6 @@ Core models for email archival, annotation, and relationship tracking:
 - Email, Thread, Person, Attachment - Core email data
 - Tag, Annotation, Collection - Organization and metadata
 - PrivacyRule - Export controls
-- Graph/relationship support for network analysis
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ from datetime import datetime
 
 from sqlalchemy import (
     Column,
-    Float,
     ForeignKey,
     Index,
     Integer,
@@ -80,10 +78,6 @@ class Email(Base):
     imap_uid: Mapped[int | None] = mapped_column()
     imap_account: Mapped[str | None] = mapped_column(String(100))
     imap_folder: Mapped[str | None] = mapped_column(String(255))
-
-    # mtk enhancements
-    embedding: Mapped[bytes | None] = mapped_column()
-    summary: Mapped[str | None] = mapped_column(Text)
 
     # Privacy
     export_allowed: Mapped[bool] = mapped_column(default=True)
@@ -173,9 +167,6 @@ class Thread(Base):
     email_count: Mapped[int] = mapped_column(default=0)
     first_date: Mapped[datetime | None] = mapped_column()
     last_date: Mapped[datetime | None] = mapped_column()
-
-    # mtk enhancements
-    summary: Mapped[str | None] = mapped_column(Text)
 
     # Metadata
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
@@ -350,39 +341,6 @@ class CustomField(Base):
 
     def __repr__(self) -> str:
         return f"<CustomField {self.field_name}={self.field_value[:30]}>"
-
-
-class TopicCluster(Base):
-    """A topic cluster discovered through analysis (e.g., LDA, embeddings)."""
-
-    __tablename__ = "topic_clusters"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(255))
-    description: Mapped[str | None] = mapped_column(Text)
-
-    # Cluster metadata
-    keywords: Mapped[str | None] = mapped_column(Text)  # JSON array of keywords
-    embedding: Mapped[bytes | None] = mapped_column()  # Cluster centroid embedding
-
-    # Statistics
-    email_count: Mapped[int] = mapped_column(default=0)
-
-    # Metadata
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-
-    def __repr__(self) -> str:
-        return f"<TopicCluster {self.name} ({self.email_count} emails)>"
-
-
-# Association table for email-topic membership
-email_topics = Table(
-    "email_topics",
-    Base.metadata,
-    Column("email_id", Integer, ForeignKey("emails.id"), primary_key=True),
-    Column("topic_id", Integer, ForeignKey("topic_clusters.id"), primary_key=True),
-    Column("score", Float, default=1.0),  # Membership score/weight
-)
 
 
 class ImapSyncState(Base):
