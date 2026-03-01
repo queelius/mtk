@@ -1243,6 +1243,25 @@ def export_markdown(
             console.print(f"[yellow]Excluded {result.emails_excluded} emails (privacy)[/yellow]")
 
 
+@export_app.command("html")
+def export_html(
+    output: Path = typer.Argument(..., help="Output HTML file path"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
+) -> None:
+    """Export email archive as a self-contained HTML application."""
+    from mtk.export.html_export import HtmlExporter
+
+    db = get_db()
+    exporter = HtmlExporter(output, db.db_path)
+    result = exporter.export_from_db()
+
+    if json_output:
+        print(json_lib.dumps(result.to_dict(), indent=2))
+    else:
+        console.print(f"[green]Exported archive to {output}[/green]")
+        console.print(f"  {result.emails_exported} emails, {output.stat().st_size / 1024:.0f} KB")
+
+
 # === List Tags Command ===
 @app.command("list-tags")
 def list_tags(
