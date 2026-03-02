@@ -728,5 +728,3 @@ class TestPrivacyRuleModel:
 
         with pytest.raises(IntegrityError):
             session.commit()
-
-

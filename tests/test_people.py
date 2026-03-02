@@ -122,4 +122,3 @@ class TestRelationshipAnalyzer:
             assert stats is not None
             assert stats.person_id == person.id
             assert stats.person_name == person.name
-

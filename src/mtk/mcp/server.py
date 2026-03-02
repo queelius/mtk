@@ -92,12 +92,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 # Regex patterns for SQL safety
 # ---------------------------------------------------------------------------
 
-_DDL_PATTERN = re.compile(
-    r"\b(DROP|ALTER|CREATE|ATTACH|DETACH)\b", re.IGNORECASE
-)
-_WRITE_PATTERN = re.compile(
-    r"\b(INSERT|UPDATE|DELETE|REPLACE)\b", re.IGNORECASE
-)
+_DDL_PATTERN = re.compile(r"\b(DROP|ALTER|CREATE|ATTACH|DETACH)\b", re.IGNORECASE)
+_WRITE_PATTERN = re.compile(r"\b(INSERT|UPDATE|DELETE|REPLACE)\b", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -164,11 +160,17 @@ def run_sql(session: Any, sql: str, readonly: bool = True) -> str:
     """
     # Always block DDL
     if _DDL_PATTERN.search(sql):
-        return json.dumps({"error": "DDL statements (DROP/ALTER/CREATE/ATTACH/DETACH) are not allowed"})
+        return json.dumps(
+            {"error": "DDL statements (DROP/ALTER/CREATE/ATTACH/DETACH) are not allowed"}
+        )
 
     # Block writes in readonly mode
     if readonly and _WRITE_PATTERN.search(sql):
-        return json.dumps({"error": "Write statements (INSERT/UPDATE/DELETE/REPLACE) are blocked in readonly mode. Set readonly=false to allow."})
+        return json.dumps(
+            {
+                "error": "Write statements (INSERT/UPDATE/DELETE/REPLACE) are blocked in readonly mode. Set readonly=false to allow."
+            }
+        )
 
     try:
         conn = session.connection()

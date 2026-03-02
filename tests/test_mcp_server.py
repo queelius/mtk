@@ -32,12 +32,16 @@ class TestRunSql:
 
     def test_select_empty_result(self, populated_db: Database) -> None:
         with populated_db.session() as session:
-            result = json.loads(run_sql(session, "SELECT * FROM emails WHERE message_id = 'nonexistent'"))
+            result = json.loads(
+                run_sql(session, "SELECT * FROM emails WHERE message_id = 'nonexistent'")
+            )
             assert result == []
 
     def test_readonly_blocks_insert(self, populated_db: Database) -> None:
         with populated_db.session() as session:
-            result = json.loads(run_sql(session, "INSERT INTO tags (name, source) VALUES ('test', 'mtk')"))
+            result = json.loads(
+                run_sql(session, "INSERT INTO tags (name, source) VALUES ('test', 'mtk')")
+            )
             assert "error" in result
             assert "readonly" in result["error"].lower() or "blocked" in result["error"].lower()
 
@@ -48,7 +52,9 @@ class TestRunSql:
 
     def test_readonly_blocks_update(self, populated_db: Database) -> None:
         with populated_db.session() as session:
-            result = json.loads(run_sql(session, "UPDATE emails SET subject = 'hacked' WHERE id = 1"))
+            result = json.loads(
+                run_sql(session, "UPDATE emails SET subject = 'hacked' WHERE id = 1")
+            )
             assert "error" in result
 
     def test_writable_allows_insert(self, populated_db: Database) -> None:
