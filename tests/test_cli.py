@@ -7,6 +7,7 @@ These tests verify the CLI interface works correctly:
 - Help text
 """
 
+from datetime import datetime
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -82,12 +83,226 @@ class TestStatsCommand:
 
 
 class TestTagCommand:
-    """Tests for the tag command."""
+    """Tests for the tag command group (sub-app)."""
+
+    # --- Help / discovery ---
 
     def test_tag_help(self) -> None:
-        """tag command should have help."""
+        """tag command group should display help listing subcommands."""
         result = runner.invoke(app, ["tag", "--help"])
         assert result.exit_code == 0
+        assert "add" in result.output
+        assert "remove" in result.output
+        assert "list" in result.output
+        assert "batch" in result.output
+
+    def test_tag_add_help(self) -> None:
+        """tag add should display help."""
+        result = runner.invoke(app, ["tag", "add", "--help"])
+        assert result.exit_code == 0
+        assert "message" in result.output.lower()
+
+    def test_tag_remove_help(self) -> None:
+        """tag remove should display help."""
+        result = runner.invoke(app, ["tag", "remove", "--help"])
+        assert result.exit_code == 0
+        assert "message" in result.output.lower()
+
+    def test_tag_list_help(self) -> None:
+        """tag list should display help."""
+        result = runner.invoke(app, ["tag", "list", "--help"])
+        assert result.exit_code == 0
+
+    def test_tag_batch_help(self) -> None:
+        """tag batch should display help."""
+        result = runner.invoke(app, ["tag", "batch", "--help"])
+        assert result.exit_code == 0
+
+    # --- tag add ---
+
+    def test_tag_add_email_not_found(self) -> None:
+        """tag add should fail gracefully when email not found."""
+        with patch("mtk.cli.main.get_db") as mock_get_db:
+            from mtk.core.database import Database
+
+            db = Database(":memory:")
+            db.create_tables()
+            mock_get_db.return_value = db
+
+            result = runner.invoke(app, ["tag", "add", "nonexistent@id", "work"])
+            assert result.exit_code != 0
+
+    def test_tag_add_email_not_found_json(self) -> None:
+        """tag add --json should output error JSON when email not found."""
+        import json
+
+        with patch("mtk.cli.main.get_db") as mock_get_db:
+            from mtk.core.database import Database
+
+            db = Database(":memory:")
+            db.create_tables()
+            mock_get_db.return_value = db
+
+            result = runner.invoke(app, ["tag", "add", "--json", "nonexistent@id", "work"])
+            assert result.exit_code != 0
+            data = json.loads(result.output)
+            assert "error" in data
+
+    def test_tag_add_success(self) -> None:
+        """tag add should add tags to an email."""
+        import json
+
+        with patch("mtk.cli.main.get_db") as mock_get_db:
+            from mtk.core.database import Database
+            from mtk.core.models import Email
+
+            db = Database(":memory:")
+            db.create_tables()
+            with db.session() as session:
+                session.add(
+                    Email(
+                        message_id="test@example.com",
+                        from_addr="a@b.com",
+                        date=datetime(2024, 1, 15),
+                    )
+                )
+                session.commit()
+            mock_get_db.return_value = db
+
+            result = runner.invoke(
+                app, ["tag", "add", "--json", "test@example.com", "work", "important"]
+            )
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["message_id"] == "test@example.com"
+            assert "work" in data["tags"]
+            assert "important" in data["tags"]
+
+    def test_tag_add_requires_tags(self) -> None:
+        """tag add should require at least one tag argument."""
+        result = runner.invoke(app, ["tag", "add", "test@example.com"])
+        assert result.exit_code != 0
+
+    # --- tag remove ---
+
+    def test_tag_remove_email_not_found(self) -> None:
+        """tag remove should fail gracefully when email not found."""
+        with patch("mtk.cli.main.get_db") as mock_get_db:
+            from mtk.core.database import Database
+
+            db = Database(":memory:")
+            db.create_tables()
+            mock_get_db.return_value = db
+
+            result = runner.invoke(app, ["tag", "remove", "nonexistent@id", "work"])
+            assert result.exit_code != 0
+
+    def test_tag_remove_success(self) -> None:
+        """tag remove should remove tags from an email."""
+        import json
+
+        with patch("mtk.cli.main.get_db") as mock_get_db:
+            from mtk.core.database import Database
+            from mtk.core.models import Email, Tag
+
+            db = Database(":memory:")
+            db.create_tables()
+            with db.session() as session:
+                email = Email(
+                    message_id="test@example.com", from_addr="a@b.com", date=datetime(2024, 1, 15)
+                )
+                tag = Tag(name="work", source="mtk")
+                session.add(email)
+                session.add(tag)
+                session.flush()
+                email.tags.append(tag)
+                session.commit()
+            mock_get_db.return_value = db
+
+            result = runner.invoke(app, ["tag", "remove", "--json", "test@example.com", "work"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["message_id"] == "test@example.com"
+            assert "work" not in data["tags"]
+
+    # --- tag list ---
+
+    def test_tag_list_empty(self) -> None:
+        """tag list should handle empty tag list."""
+        with patch("mtk.cli.main.get_db") as mock_get_db:
+            from mtk.core.database import Database
+
+            db = Database(":memory:")
+            db.create_tables()
+            mock_get_db.return_value = db
+
+            result = runner.invoke(app, ["tag", "list"])
+            assert result.exit_code == 0
+
+    def test_tag_list_json(self) -> None:
+        """tag list --json should output JSON array of tags with counts."""
+        import json
+
+        with patch("mtk.cli.main.get_db") as mock_get_db:
+            from mtk.core.database import Database
+            from mtk.core.models import Email, Tag
+
+            db = Database(":memory:")
+            db.create_tables()
+            with db.session() as session:
+                email = Email(
+                    message_id="test@example.com", from_addr="a@b.com", date=datetime(2024, 1, 15)
+                )
+                tag = Tag(name="work", source="mtk")
+                session.add(email)
+                session.add(tag)
+                session.flush()
+                email.tags.append(tag)
+                session.commit()
+            mock_get_db.return_value = db
+
+            result = runner.invoke(app, ["tag", "list", "--json"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert isinstance(data, list)
+            assert any(t["name"] == "work" and t["count"] == 1 for t in data)
+
+    # --- tag batch ---
+
+    def test_tag_batch_requires_query(self) -> None:
+        """tag batch should require a query argument."""
+        result = runner.invoke(app, ["tag", "batch"])
+        assert result.exit_code != 0
+
+    def test_tag_batch_no_matches(self) -> None:
+        """tag batch should handle no matching emails."""
+        import json
+
+        with patch("mtk.cli.main.get_db") as mock_get_db:
+            from mtk.core.database import Database
+
+            db = Database(":memory:")
+            db.create_tables()
+            mock_get_db.return_value = db
+
+            result = runner.invoke(
+                app, ["tag", "batch", "--json", "from:nobody@x.com", "--add", "work"]
+            )
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["matched"] == 0
+
+    # --- Old commands are gone ---
+
+    def test_old_list_tags_removed(self) -> None:
+        """The old 'list-tags' top-level command should no longer exist."""
+        result = runner.invoke(app, ["list-tags"])
+        assert result.exit_code != 0
+
+    def test_old_tag_batch_removed(self) -> None:
+        """The old 'tag-batch' top-level command should no longer exist."""
+        result = runner.invoke(app, ["tag-batch", "query"])
+        assert result.exit_code != 0
 
 
 class TestImportCommand:

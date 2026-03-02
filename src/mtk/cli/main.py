@@ -54,6 +54,29 @@ def format_date(dt: datetime | None) -> str:
     return dt.strftime("%Y-%m-%d %H:%M")
 
 
+def _resolve_email(session, message_id: str):
+    """Look up email by message_id substring."""
+    from sqlalchemy import select
+
+    from mtk.core.models import Email
+
+    return session.execute(select(Email).where(Email.message_id.contains(message_id))).scalar()
+
+
+def _ensure_tag(session, tag_name: str):
+    """Get or create a Tag by name."""
+    from sqlalchemy import select
+
+    from mtk.core.models import Tag
+
+    tag = session.execute(select(Tag).where(Tag.name == tag_name)).scalar()
+    if not tag:
+        tag = Tag(name=tag_name, source="mtk")
+        session.add(tag)
+        session.flush()
+    return tag
+
+
 def format_email_summary(email, show_body: bool = False) -> str:
     """Format email for display."""
     lines = [
@@ -990,22 +1013,21 @@ def rebuild_threads(
         console.print("[yellow]No new threads to build[/yellow]")
 
 
-# === Tag Command ===
-@app.command()
-def tag(
+# === Tag Commands ===
+tag_app = typer.Typer(help="Manage email tags")
+app.add_typer(tag_app, name="tag")
+
+
+@tag_app.command("add")
+def tag_add(
     message_id: str = typer.Argument(..., help="Message ID"),
-    add: list[str] | None = typer.Option(None, "--add", "-a", help="Tags to add"),
-    remove: list[str] | None = typer.Option(None, "--remove", "-r", help="Tags to remove"),
+    tags: list[str] = typer.Argument(..., help="Tag names to add"),
     json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
 ) -> None:
-    """Add or remove tags from an email."""
-    from sqlalchemy import select
-
-    from mtk.core.models import Email, Tag
-
+    """Add tags to an email."""
     db = get_db()
     with db.session() as session:
-        email = session.execute(select(Email).where(Email.message_id.contains(message_id))).scalar()
+        email = _resolve_email(session, message_id)
 
         if not email:
             if json:
@@ -1014,32 +1036,71 @@ def tag(
                 console.print(f"[red]Email not found: {message_id}[/red]")
             raise typer.Exit(1)
 
-        if add:
-            for tag_name in add:
-                existing_tag = session.execute(select(Tag).where(Tag.name == tag_name)).scalar()
-                if not existing_tag:
-                    existing_tag = Tag(name=tag_name, source="mtk")
-                    session.add(existing_tag)
-                if existing_tag not in email.tags:
-                    email.tags.append(existing_tag)
-            if not json:
-                console.print(f"[green]Added tags: {', '.join(add)}[/green]")
-
-        if remove:
-            for tag_name in remove:
-                existing_tag = session.execute(select(Tag).where(Tag.name == tag_name)).scalar()
-                if existing_tag and existing_tag in email.tags:
-                    email.tags.remove(existing_tag)
-            if not json:
-                console.print(f"[yellow]Removed tags: {', '.join(remove)}[/yellow]")
+        for tag_name in tags:
+            tag = _ensure_tag(session, tag_name)
+            if tag not in email.tags:
+                email.tags.append(tag)
+        if not json:
+            console.print(f"[green]Added tags: {', '.join(tags)}[/green]")
 
         # Queue tag changes for IMAP push if email is IMAP-tracked
         if email.imap_account:
             from mtk.imap.push import queue_tag_change
 
-            for tag_name in add or []:
+            for tag_name in tags:
                 queue_tag_change(session, email.id, email.imap_account, "add", tag_name)
-            for tag_name in remove or []:
+
+        session.commit()
+
+        current_tags = [t.name for t in email.tags]
+        if json:
+            print(
+                json_lib.dumps(
+                    {
+                        "message_id": email.message_id,
+                        "tags": current_tags,
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            console.print(f"Current tags: {', '.join(current_tags) or '(none)'}")
+
+
+@tag_app.command("remove")
+def tag_remove(
+    message_id: str = typer.Argument(..., help="Message ID"),
+    tags: list[str] = typer.Argument(..., help="Tag names to remove"),
+    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+) -> None:
+    """Remove tags from an email."""
+    from sqlalchemy import select
+
+    from mtk.core.models import Tag
+
+    db = get_db()
+    with db.session() as session:
+        email = _resolve_email(session, message_id)
+
+        if not email:
+            if json:
+                print(json_lib.dumps({"error": f"Email not found: {message_id}"}, indent=2))
+            else:
+                console.print(f"[red]Email not found: {message_id}[/red]")
+            raise typer.Exit(1)
+
+        for tag_name in tags:
+            existing_tag = session.execute(select(Tag).where(Tag.name == tag_name)).scalar()
+            if existing_tag and existing_tag in email.tags:
+                email.tags.remove(existing_tag)
+        if not json:
+            console.print(f"[yellow]Removed tags: {', '.join(tags)}[/yellow]")
+
+        # Queue tag changes for IMAP push if email is IMAP-tracked
+        if email.imap_account:
+            from mtk.imap.push import queue_tag_change
+
+            for tag_name in tags:
                 queue_tag_change(session, email.id, email.imap_account, "remove", tag_name)
 
         session.commit()
@@ -1057,6 +1118,138 @@ def tag(
             )
         else:
             console.print(f"Current tags: {', '.join(current_tags) or '(none)'}")
+
+
+@tag_app.command("list")
+def tag_list(
+    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+) -> None:
+    """List all tags in the archive."""
+    from sqlalchemy import func, select
+
+    from mtk.core.models import Tag, email_tags
+
+    db = get_db()
+    with db.session() as session:
+        # Get tags with email counts
+        stmt = (
+            select(Tag.name, func.count(email_tags.c.email_id).label("count"))
+            .outerjoin(email_tags, Tag.id == email_tags.c.tag_id)
+            .group_by(Tag.id)
+            .order_by(func.count(email_tags.c.email_id).desc())
+        )
+        results = session.execute(stmt).all()
+
+        if json:
+            data = [{"name": name, "count": count} for name, count in results]
+            print(json_lib.dumps(data, indent=2))
+            return
+
+        if not results:
+            console.print("[yellow]No tags found[/yellow]")
+            return
+
+        table = Table(title=f"Tags ({len(results)})")
+        table.add_column("Tag", width=30)
+        table.add_column("Emails", justify="right", width=8)
+
+        for name, count in results:
+            table.add_row(name, str(count))
+
+        console.print(table)
+
+
+@tag_app.command("batch")
+def tag_batch(
+    query: str = typer.Argument(..., help="Search query to match emails"),
+    add: list[str] | None = typer.Option(None, "--add", "-a", help="Tags to add"),
+    remove: list[str] | None = typer.Option(None, "--remove", "-r", help="Tags to remove"),
+    dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show what would be changed"),
+    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
+) -> None:
+    """Add or remove tags from multiple emails matching a query.
+
+    Example: mtk tag batch "from:alice@example.com" --add work --add important
+    """
+    from sqlalchemy import select
+
+    from mtk.core.models import Tag
+    from mtk.search import SearchEngine
+
+    db = get_db()
+    with db.session() as session:
+        engine = SearchEngine(session)
+        results = engine.search(query, limit=1000)
+
+        if not results:
+            if json:
+                print(json_lib.dumps({"matched": 0, "modified": 0}, indent=2))
+            else:
+                console.print("[yellow]No emails matched the query[/yellow]")
+            return
+
+        emails = [r.email for r in results]
+
+        if dry_run:
+            if json:
+                print(
+                    json_lib.dumps(
+                        {
+                            "dry_run": True,
+                            "matched": len(emails),
+                            "emails": [
+                                {"id": e.message_id, "subject": e.subject} for e in emails[:20]
+                            ],
+                            "add_tags": add or [],
+                            "remove_tags": remove or [],
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                console.print(f"[blue]Would modify {len(emails)} emails[/blue]")
+                for e in emails[:10]:
+                    console.print(f"  - {e.subject or '(no subject)'}")
+                if len(emails) > 10:
+                    console.print(f"  ... and {len(emails) - 10} more")
+            return
+
+        modified = 0
+        for email in emails:
+            changed = False
+            if add:
+                for tag_name in add:
+                    tag = _ensure_tag(session, tag_name)
+                    if tag not in email.tags:
+                        email.tags.append(tag)
+                        changed = True
+
+            if remove:
+                for tag_name in remove:
+                    existing_tag = session.execute(select(Tag).where(Tag.name == tag_name)).scalar()
+                    if existing_tag and existing_tag in email.tags:
+                        email.tags.remove(existing_tag)
+                        changed = True
+
+            if changed:
+                modified += 1
+
+        session.commit()
+
+        if json:
+            print(
+                json_lib.dumps(
+                    {
+                        "matched": len(emails),
+                        "modified": modified,
+                        "add_tags": add or [],
+                        "remove_tags": remove or [],
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            console.print(f"[green]Modified {modified} of {len(emails)} matched emails[/green]")
 
 
 # === Privacy Commands ===
@@ -1283,144 +1476,6 @@ def export_arkiv(
     else:
         console.print(f"[green]Exported {result.emails_exported} emails to {output}[/green]")
         console.print(f"  Schema written to {output.parent / 'schema.yaml'}")
-
-
-# === List Tags Command ===
-@app.command("list-tags")
-def list_tags(
-    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
-) -> None:
-    """List all tags in the archive."""
-    from sqlalchemy import func, select
-
-    from mtk.core.models import Tag, email_tags
-
-    db = get_db()
-    with db.session() as session:
-        # Get tags with email counts
-        stmt = (
-            select(Tag.name, func.count(email_tags.c.email_id).label("count"))
-            .outerjoin(email_tags, Tag.id == email_tags.c.tag_id)
-            .group_by(Tag.id)
-            .order_by(func.count(email_tags.c.email_id).desc())
-        )
-        results = session.execute(stmt).all()
-
-        if json:
-            data = [{"name": name, "count": count} for name, count in results]
-            print(json_lib.dumps(data, indent=2))
-            return
-
-        if not results:
-            console.print("[yellow]No tags found[/yellow]")
-            return
-
-        table = Table(title=f"Tags ({len(results)})")
-        table.add_column("Tag", width=30)
-        table.add_column("Emails", justify="right", width=8)
-
-        for name, count in results:
-            table.add_row(name, str(count))
-
-        console.print(table)
-
-
-# === Batch Tag Command ===
-@app.command("tag-batch")
-def tag_batch(
-    query: str = typer.Argument(..., help="Search query to match emails"),
-    add: list[str] | None = typer.Option(None, "--add", "-a", help="Tags to add"),
-    remove: list[str] | None = typer.Option(None, "--remove", "-r", help="Tags to remove"),
-    dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show what would be changed"),
-    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
-) -> None:
-    """Add or remove tags from multiple emails matching a query.
-
-    Example: mtk tag-batch "from:alice@example.com" --add work --add important
-    """
-    from sqlalchemy import select
-
-    from mtk.core.models import Tag
-    from mtk.search import SearchEngine
-
-    db = get_db()
-    with db.session() as session:
-        engine = SearchEngine(session)
-        results = engine.search(query, limit=1000)
-
-        if not results:
-            if json:
-                print(json_lib.dumps({"matched": 0, "modified": 0}, indent=2))
-            else:
-                console.print("[yellow]No emails matched the query[/yellow]")
-            return
-
-        emails = [r.email for r in results]
-
-        if dry_run:
-            if json:
-                print(
-                    json_lib.dumps(
-                        {
-                            "dry_run": True,
-                            "matched": len(emails),
-                            "emails": [
-                                {"id": e.message_id, "subject": e.subject} for e in emails[:20]
-                            ],
-                            "add_tags": add or [],
-                            "remove_tags": remove or [],
-                        },
-                        indent=2,
-                    )
-                )
-            else:
-                console.print(f"[blue]Would modify {len(emails)} emails[/blue]")
-                for e in emails[:10]:
-                    console.print(f"  - {e.subject or '(no subject)'}")
-                if len(emails) > 10:
-                    console.print(f"  ... and {len(emails) - 10} more")
-            return
-
-        modified = 0
-        for email in emails:
-            changed = False
-            if add:
-                for tag_name in add:
-                    existing_tag = session.execute(select(Tag).where(Tag.name == tag_name)).scalar()
-                    if not existing_tag:
-                        existing_tag = Tag(name=tag_name, source="mtk")
-                        session.add(existing_tag)
-                        session.flush()
-                    if existing_tag not in email.tags:
-                        email.tags.append(existing_tag)
-                        changed = True
-
-            if remove:
-                for tag_name in remove:
-                    existing_tag = session.execute(select(Tag).where(Tag.name == tag_name)).scalar()
-                    if existing_tag and existing_tag in email.tags:
-                        email.tags.remove(existing_tag)
-                        changed = True
-
-            if changed:
-                modified += 1
-
-        session.commit()
-
-        if json:
-            print(
-                json_lib.dumps(
-                    {
-                        "matched": len(emails),
-                        "modified": modified,
-                        "add_tags": add or [],
-                        "remove_tags": remove or [],
-                    },
-                    indent=2,
-                )
-            )
-        else:
-            console.print(f"[green]Modified {modified} of {len(emails)} matched emails[/green]")
 
 
 # === Notmuch Commands ===
