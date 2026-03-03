@@ -305,6 +305,32 @@ class TestTagCommand:
         assert result.exit_code != 0
 
 
+class TestRebuildCommand:
+    """Tests for the rebuild command group."""
+
+    def test_rebuild_help(self) -> None:
+        result = runner.invoke(app, ["rebuild", "--help"])
+        assert result.exit_code == 0
+        assert "index" in result.output
+        assert "threads" in result.output
+
+    def test_rebuild_index_help(self) -> None:
+        result = runner.invoke(app, ["rebuild", "index", "--help"])
+        assert result.exit_code == 0
+
+    def test_rebuild_threads_help(self) -> None:
+        result = runner.invoke(app, ["rebuild", "threads", "--help"])
+        assert result.exit_code == 0
+
+    def test_old_rebuild_index_removed(self) -> None:
+        result = runner.invoke(app, ["rebuild-index", "--help"])
+        assert result.exit_code != 0
+
+    def test_old_rebuild_threads_removed(self) -> None:
+        result = runner.invoke(app, ["rebuild-threads", "--help"])
+        assert result.exit_code != 0
+
+
 class TestImportCommand:
     """Tests for import subcommands."""
 

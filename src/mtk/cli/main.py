@@ -956,8 +956,12 @@ Date Range:  {date_result[0] or "N/A"} to {date_result[1] or "N/A"}
     console.print(panel)
 
 
-# === Rebuild Index Command ===
-@app.command("rebuild-index")
+# === Rebuild Commands ===
+rebuild_app = typer.Typer(help="Rebuild indexes and threads")
+app.add_typer(rebuild_app, name="rebuild")
+
+
+@rebuild_app.command("index")
 def rebuild_index(
     json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
 ) -> None:
@@ -991,8 +995,7 @@ def rebuild_index(
             console.print("[dim]Index is in sync with email database[/dim]")
 
 
-# === Threads Command ===
-@app.command("rebuild-threads")
+@rebuild_app.command("threads")
 def rebuild_threads(
     json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
 ) -> None:
