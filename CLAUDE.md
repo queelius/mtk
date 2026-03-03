@@ -76,7 +76,7 @@ ruff format src/mtk tests
 
 ### CLI (`src/mtk/cli/`)
 - `main.py` - Typer app with commands: inbox, show, thread, reply, search, stats, init, shell
-- Sub-apps: `import` (maildir, mbox, eml, gmail), `people` (list, show), `export` (json, mbox, markdown, html, arkiv), `tag` (add, remove, batch), `notmuch` (status, pull, push, sync, import)
+- Sub-apps: `import` (maildir, mbox, eml, gmail), `people` (list, show), `export` (json, mbox, markdown, html, arkiv), `tag` (add, remove, list, batch), `rebuild` (index, threads), `notmuch` (status, pull, push, sync, import)
 - `imap_cli.py` - IMAP sub-commands (accounts, sync, push, folders, test)
 - `shell.py` - Interactive REPL mode
 

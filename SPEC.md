@@ -242,12 +242,12 @@ mtk export mbox <output> [--query Q] [--privacy]
 mtk export markdown <output> [--query Q] [--privacy] [--threads]
 ```
 
-### Tagging
+### Tagging (`mtk tag`)
 ```bash
-mtk tag <id> --add account/work --add project/mtk
-mtk tag <id> --remove type/newsletter
-mtk tag-batch <query> --add TAG [--dry-run]
-mtk list-tags [--tree]       # Show hierarchy
+mtk tag add <id> account/work project/mtk
+mtk tag remove <id> type/newsletter
+mtk tag batch <query> --add TAG [--dry-run]
+mtk tag list                 # Show all tags with counts
 ```
 
 ### People (`mtk people`)
@@ -397,7 +397,7 @@ mtk search "tag:work" --jsonl  # One JSON object per line
 ### Batch Input
 Bulk operations accept JSON input:
 ```bash
-echo '{"ids": ["id1", "id2"], "add_tags": ["reviewed"]}' | mtk tag-batch --stdin
+echo '{"ids": ["id1", "id2"], "add_tags": ["reviewed"]}' | mtk tag batch --stdin
 ```
 
 ### Query Builder
