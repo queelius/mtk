@@ -509,35 +509,6 @@ def mock_config(tmp_dir: Path):
         yield config
 
 
-@pytest.fixture
-def mock_notmuch():
-    """Mock notmuch2 module for testing without notmuch installed."""
-    mock_db = MagicMock()
-    mock_msg = MagicMock()
-    mock_msg.messageid = "test@example.com"
-    mock_msg.threadid = "thread123"
-    mock_msg.date = 1705330800  # Unix timestamp
-    mock_msg.header.side_effect = lambda h: {
-        "From": "sender@example.com",
-        "To": "recipient@example.com",
-        "Subject": "Test",
-    }.get(h, "")
-    mock_msg.tags = ["inbox", "unread"]
-    mock_msg.filenames.return_value = ["/path/to/email"]
-
-    mock_db.messages.return_value = [mock_msg]
-    mock_db.__enter__ = MagicMock(return_value=mock_db)
-    mock_db.__exit__ = MagicMock(return_value=False)
-
-    with (
-        patch.dict("sys.modules", {"notmuch2": MagicMock()}),
-        patch("mtk.notmuch.wrapper.NOTMUCH_AVAILABLE", True),
-        patch("mtk.notmuch.wrapper.notmuch2") as mock_notmuch2,
-    ):
-        mock_notmuch2.Database.return_value = mock_db
-        yield mock_notmuch2
-
-
 # =============================================================================
 # Factory Fixtures
 # =============================================================================

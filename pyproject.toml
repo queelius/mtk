@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 authors = [
     { name = "spinoza" }
 ]
-keywords = ["email", "mail", "archive", "notmuch", "search"]
+keywords = ["email", "mail", "archive", "search", "imap"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -34,9 +34,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-notmuch = [
-    "notmuch2>=0.38",
-]
 mcp = [
     "mcp>=1.0.0",
 ]
@@ -54,7 +51,7 @@ dev = [
     "ruff>=0.1.0",
 ]
 all = [
-    "mtk[notmuch,mcp,imap,dev]",
+    "mtk[mcp,imap,dev]",
 ]
 
 [project.scripts]
@@ -86,7 +83,7 @@ warn_return_any = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["notmuch2", "notmuch2.*", "imapclient", "imapclient.*", "google_auth_oauthlib.*", "google.auth.*", "google.oauth2.*"]
+module = ["imapclient", "imapclient.*", "google_auth_oauthlib.*", "google.auth.*", "google.oauth2.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

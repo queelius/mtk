@@ -25,7 +25,7 @@ from mtk.core.database import Database
 TABLE_DESCRIPTIONS: dict[str, str] = {
     "emails": "Email messages with headers, content, and metadata (metadata_json for flexible extras)",
     "threads": "Email threads/conversations grouping related emails",
-    "tags": "Tags applied to emails (synced from notmuch or created in mtk)",
+    "tags": "Tags applied to emails (created in mtk or synced from IMAP)",
     "email_tags": "Association table linking emails to tags (many-to-many)",
     "attachments": "Email attachment metadata (filename, type, size)",
     "imap_sync_state": "IMAP sync state per account/folder for incremental sync",

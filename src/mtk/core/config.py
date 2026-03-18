@@ -15,7 +15,6 @@ class MtkConfig:
 
     # Paths
     maildir: Path | None = None
-    notmuch_config: Path | None = None
     db_path: Path | None = None
 
     # Behavior
@@ -62,8 +61,6 @@ class MtkConfig:
 
         if data.get("maildir"):
             config.maildir = Path(data["maildir"]).expanduser()
-        if data.get("notmuch_config"):
-            config.notmuch_config = Path(data["notmuch_config"]).expanduser()
         if data.get("db_path"):
             config.db_path = Path(data["db_path"]).expanduser()
 
@@ -79,7 +76,6 @@ class MtkConfig:
         """Convert config to dictionary for serialization."""
         data: dict[str, Any] = {
             "maildir": str(self.maildir) if self.maildir else None,
-            "notmuch_config": str(self.notmuch_config) if self.notmuch_config else None,
             "db_path": str(self.db_path) if self.db_path else None,
             "auto_sync": self.auto_sync,
         }

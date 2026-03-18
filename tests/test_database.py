@@ -374,13 +374,13 @@ class TestTagModel:
             session.commit()
 
     def test_tag_default_source(self, session) -> None:
-        """Tag should default to 'notmuch' source."""
+        """Tag should default to 'mtk' source."""
         tag = Tag(name="test")
         session.add(tag)
         session.commit()
 
         result = session.get(Tag, tag.id)
-        assert result.source == "notmuch"
+        assert result.source == "mtk"
 
     def test_tag_reverse_relationship(self, session) -> None:
         """Tag should have reverse relationship to emails."""
