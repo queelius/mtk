@@ -1,8 +1,8 @@
 """SQLAlchemy ORM models for mtk database.
 
-Core models for email archival, annotation, and relationship tracking:
+Core models for email archival and relationship tracking:
 - Email, Thread, Attachment - Core email data
-- Tag, Annotation, Collection - Organization and metadata
+- Tag - Organization and tagging
 """
 
 from __future__ import annotations
@@ -71,6 +71,9 @@ class Email(Base):
     imap_uid: Mapped[int | None] = mapped_column()
     imap_account: Mapped[str | None] = mapped_column(String(100))
     imap_folder: Mapped[str | None] = mapped_column(String(255))
+
+    # Flexible JSON metadata (e.g. {"source": "gmail", "labels": ["inbox"]})
+    metadata_json: Mapped[str | None] = mapped_column(Text)
 
     # Metadata
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
@@ -150,108 +153,6 @@ class Attachment(Base):
 
     def __repr__(self) -> str:
         return f"<Attachment {self.filename} ({self.content_type})>"
-
-
-# Association table for collection emails
-collection_emails = Table(
-    "collection_emails",
-    Base.metadata,
-    Column("collection_id", Integer, ForeignKey("collections.id"), primary_key=True),
-    Column("email_id", Integer, ForeignKey("emails.id"), primary_key=True),
-)
-
-
-class Annotation(Base):
-    """A user annotation/note on an email, thread, or person."""
-
-    __tablename__ = "annotations"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-
-    # Target (one of these will be set)
-    email_id: Mapped[int | None] = mapped_column(ForeignKey("emails.id"), index=True)
-    thread_id: Mapped[int | None] = mapped_column(ForeignKey("threads.id"), index=True)
-
-    # Annotation content
-    annotation_type: Mapped[str] = mapped_column(
-        String(50), default="note"
-    )  # "note", "highlight", "link", "summary"
-    content: Mapped[str] = mapped_column(Text)
-    metadata_json: Mapped[str | None] = mapped_column(Text)  # JSON for flexible metadata
-
-    # For highlights/selections
-    selection_start: Mapped[int | None] = mapped_column()
-    selection_end: Mapped[int | None] = mapped_column()
-
-    # Metadata
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    def __repr__(self) -> str:
-        if self.email_id:
-            target = f"email={self.email_id}"
-        elif self.thread_id:
-            target = f"thread={self.thread_id}"
-        else:
-            target = "unknown"
-        return f"<Annotation {self.annotation_type} on {target}>"
-
-
-class Collection(Base):
-    """A user-defined collection of emails (like a smart folder)."""
-
-    __tablename__ = "collections"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    description: Mapped[str | None] = mapped_column(Text)
-
-    # Collection type
-    collection_type: Mapped[str] = mapped_column(
-        String(50), default="manual"
-    )  # "manual", "smart", "import"
-
-    # For smart collections: the query that defines membership
-    query: Mapped[str | None] = mapped_column(Text)
-
-    # Metadata
-    color: Mapped[str | None] = mapped_column(String(20))  # For UI display
-    icon: Mapped[str | None] = mapped_column(String(50))
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Relationships
-    emails: Mapped[list[Email]] = relationship(secondary=collection_emails)
-
-    def __repr__(self) -> str:
-        return f"<Collection {self.name} ({self.collection_type})>"
-
-
-class CustomField(Base):
-    """Custom metadata field for flexible key-value storage on emails."""
-
-    __tablename__ = "custom_fields"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email_id: Mapped[int] = mapped_column(ForeignKey("emails.id"), index=True)
-
-    # Field definition
-    field_name: Mapped[str] = mapped_column(String(100), index=True)
-    field_type: Mapped[str] = mapped_column(
-        String(20), default="text"
-    )  # "text", "number", "date", "boolean", "json"
-    field_value: Mapped[str] = mapped_column(Text)
-
-    # Metadata
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-
-    __table_args__ = (
-        UniqueConstraint("email_id", "field_name"),
-        Index("ix_custom_fields_name_value", "field_name", "field_value"),
-    )
-
-    def __repr__(self) -> str:
-        return f"<CustomField {self.field_name}={self.field_value[:30]}>"
 
 
 class ImapSyncState(Base):

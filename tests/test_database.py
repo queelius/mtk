@@ -16,10 +16,7 @@ from sqlalchemy.exc import IntegrityError
 
 from mtk.core.database import Database, close_db, get_db, init_db
 from mtk.core.models import (
-    Annotation,
     Attachment,
-    Collection,
-    CustomField,
     Email,
     Tag,
     Thread,
@@ -458,155 +455,38 @@ class TestAttachmentModel:
         assert len(result) == 0
 
 
-class TestAnnotationModel:
-    """Tests for Annotation ORM model."""
+class TestMetadataJson:
+    """Tests for Email.metadata_json field."""
 
-    def test_create_annotation(self, session) -> None:
-        """Test creating annotations."""
+    def test_metadata_json(self, session) -> None:
+        """Test storing and retrieving JSON metadata on an email."""
+        import json
+
+        meta = {"source": "gmail", "labels": ["inbox"]}
         email = Email(
-            message_id="test@example.com",
-            from_addr="sender@example.com",
-            date=datetime.now(),
+            message_id="meta@test.com",
+            from_addr="a@b.com",
+            date=datetime(2024, 1, 1),
+            metadata_json=json.dumps(meta),
         )
         session.add(email)
-        session.flush()
-
-        annotation = Annotation(
-            email_id=email.id,
-            annotation_type="note",
-            content="Important context here",
-        )
-        session.add(annotation)
         session.commit()
 
-        result = session.execute(select(Annotation).where(Annotation.email_id == email.id)).scalar()
-        assert result.content == "Important context here"
-        assert result.annotation_type == "note"
+        result = session.get(Email, email.id)
+        assert json.loads(result.metadata_json)["source"] == "gmail"
+        assert json.loads(result.metadata_json)["labels"] == ["inbox"]
 
-    def test_annotation_types(self, session) -> None:
-        """Test different annotation types."""
+    def test_metadata_json_defaults_none(self, session) -> None:
+        """metadata_json should be None when not set."""
         email = Email(
-            message_id="test@example.com",
-            from_addr="sender@example.com",
-            date=datetime.now(),
+            message_id="nometa@test.com",
+            from_addr="a@b.com",
+            date=datetime(2024, 1, 1),
         )
         session.add(email)
-        session.flush()
-
-        for ann_type in ["note", "highlight", "link", "summary"]:
-            ann = Annotation(
-                email_id=email.id,
-                annotation_type=ann_type,
-                content=f"Content for {ann_type}",
-            )
-            session.add(ann)
-
         session.commit()
 
-        result = (
-            session.execute(select(Annotation).where(Annotation.email_id == email.id))
-            .scalars()
-            .all()
-        )
-        assert len(result) == 4
-
-
-class TestCollectionModel:
-    """Tests for Collection ORM model."""
-
-    def test_create_collection(self, session) -> None:
-        """Test creating collections."""
-        collection = Collection(
-            name="Project X",
-            description="Emails related to Project X",
-            collection_type="manual",
-        )
-        session.add(collection)
-        session.commit()
-
-        result = session.get(Collection, collection.id)
-        assert result.name == "Project X"
-        assert result.collection_type == "manual"
-
-    def test_collection_emails(self, session) -> None:
-        """Test collection-email relationship."""
-        collection = Collection(name="Test Collection")
-        session.add(collection)
-        session.flush()
-
-        email = Email(
-            message_id="test@example.com",
-            from_addr="sender@example.com",
-            date=datetime.now(),
-        )
-        session.add(email)
-        session.flush()
-
-        collection.emails.append(email)
-        session.commit()
-
-        result = session.get(Collection, collection.id)
-        assert len(result.emails) == 1
-
-    def test_collection_unique_name(self, session) -> None:
-        """Collection name should be unique."""
-        c1 = Collection(name="unique-collection")
-        session.add(c1)
-        session.commit()
-
-        c2 = Collection(name="unique-collection")
-        session.add(c2)
-
-        with pytest.raises(IntegrityError):
-            session.commit()
-
-
-class TestCustomFieldModel:
-    """Tests for CustomField ORM model."""
-
-    def test_create_custom_field(self, session) -> None:
-        """Test custom fields."""
-        email = Email(
-            message_id="test@example.com",
-            from_addr="sender@example.com",
-            date=datetime.now(),
-        )
-        session.add(email)
-        session.flush()
-
-        field = CustomField(
-            email_id=email.id,
-            field_name="project",
-            field_type="text",
-            field_value="Alpha",
-        )
-        session.add(field)
-        session.commit()
-
-        result = session.execute(
-            select(CustomField).where(CustomField.email_id == email.id)
-        ).scalar()
-        assert result.field_name == "project"
-        assert result.field_value == "Alpha"
-
-    def test_custom_field_unique_per_email(self, session) -> None:
-        """Same field name cannot be used twice per email."""
-        email = Email(
-            message_id="test@example.com",
-            from_addr="sender@example.com",
-            date=datetime.now(),
-        )
-        session.add(email)
-        session.flush()
-
-        f1 = CustomField(email_id=email.id, field_name="priority", field_value="high")
-        session.add(f1)
-        session.commit()
-
-        f2 = CustomField(email_id=email.id, field_name="priority", field_value="low")
-        session.add(f2)
-
-        with pytest.raises(IntegrityError):
-            session.commit()
+        result = session.get(Email, email.id)
+        assert result.metadata_json is None
 
 

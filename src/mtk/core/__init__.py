@@ -2,11 +2,8 @@
 
 from mtk.core.database import Database, close_db, get_db, init_db
 from mtk.core.models import (
-    Annotation,
     Attachment,
     Base,
-    Collection,
-    CustomField,
     Email,
     Tag,
     Thread,
@@ -19,9 +16,6 @@ __all__ = [
     "Thread",
     "Tag",
     "Attachment",
-    "Annotation",
-    "Collection",
-    "CustomField",
     # Database
     "Database",
     "get_db",

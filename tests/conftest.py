@@ -21,9 +21,7 @@ from sqlalchemy.orm import Session
 
 from mtk.core.database import Database
 from mtk.core.models import (
-    Annotation,
     Attachment,
-    Collection,
     Email,
     Tag,
     Thread,
@@ -485,24 +483,6 @@ def populated_db(db: Database) -> Database:
             size=102400,
         )
         session.add(attachment)
-
-        # Create annotation
-        annotation = Annotation(
-            email_id=email1.id,
-            annotation_type="note",
-            content="Important project kickoff email",
-        )
-        session.add(annotation)
-
-        # Create collection
-        collection = Collection(
-            name="Project X",
-            description="Emails related to Project X",
-            collection_type="manual",
-        )
-        session.add(collection)
-        session.flush()
-        collection.emails.append(email1)
 
         session.commit()
 
