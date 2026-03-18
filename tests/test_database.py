@@ -2,7 +2,7 @@
 
 These tests define the expected behavior of:
 - Database class: connection management, sessions, transactions
-- ORM models: Email, Person, Thread, Tag, Attachment, Annotation, Collection, etc.
+- ORM models: Email, Thread, Tag, Attachment, Annotation, Collection, etc.
 - Relationships: foreign keys, many-to-many, cascade behavior
 - Constraints: unique, indexes, defaults
 """
@@ -21,8 +21,6 @@ from mtk.core.models import (
     Collection,
     CustomField,
     Email,
-    Person,
-    PersonEmail,
     PrivacyRule,
     Tag,
     Thread,
@@ -294,68 +292,6 @@ class TestEmailModel:
         repr_str = repr(email)
         assert "test123456789" in repr_str
         assert "sender@example.com" in repr_str
-
-
-class TestPersonModel:
-    """Tests for Person ORM model."""
-
-    def test_create_person(self, session) -> None:
-        """Test creating a person."""
-        person = Person(
-            name="Jane Smith",
-            primary_email="jane@example.com",
-            relationship_type="colleague",
-        )
-        session.add(person)
-        session.commit()
-
-        result = session.get(Person, person.id)
-        assert result.name == "Jane Smith"
-        assert result.primary_email == "jane@example.com"
-        assert result.relationship_type == "colleague"
-
-    def test_person_with_multiple_emails(self, session) -> None:
-        """Test person with multiple email addresses."""
-        person = Person(
-            name="Jane Smith",
-            primary_email="jane@example.com",
-        )
-        session.add(person)
-        session.flush()
-
-        pe1 = PersonEmail(email="jane@example.com", person_id=person.id, is_primary=True)
-        pe2 = PersonEmail(email="jane.smith@work.com", person_id=person.id, is_primary=False)
-        session.add_all([pe1, pe2])
-        session.commit()
-
-        result = session.get(Person, person.id)
-        assert len(result.email_addresses) == 2
-
-    def test_person_email_unique(self, session) -> None:
-        """PersonEmail should have unique email constraint."""
-        person = Person(name="Test", primary_email="test@example.com")
-        session.add(person)
-        session.flush()
-
-        pe1 = PersonEmail(email="shared@example.com", person_id=person.id)
-        session.add(pe1)
-        session.commit()
-
-        pe2 = PersonEmail(email="shared@example.com", person_id=person.id)
-        session.add(pe2)
-
-        with pytest.raises(IntegrityError):
-            session.commit()
-
-    def test_person_defaults(self, session) -> None:
-        """Test person default values."""
-        person = Person(name="Test", primary_email="test@example.com")
-        session.add(person)
-        session.commit()
-
-        result = session.get(Person, person.id)
-        assert result.email_count == 0
-        assert result.created_at is not None
 
 
 class TestThreadModel:

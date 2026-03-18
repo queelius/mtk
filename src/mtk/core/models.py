@@ -1,7 +1,7 @@
 """SQLAlchemy ORM models for mtk database.
 
 Core models for email archival, annotation, and relationship tracking:
-- Email, Thread, Person, Attachment - Core email data
+- Email, Thread, Attachment - Core email data
 - Tag, Annotation, Collection - Organization and metadata
 - PrivacyRule - Export controls
 """
@@ -29,15 +29,6 @@ class Base(DeclarativeBase):
     pass
 
 
-# Association table for email recipients (To/CC/BCC)
-email_recipients = Table(
-    "email_recipients",
-    Base.metadata,
-    Column("email_id", Integer, ForeignKey("emails.id"), primary_key=True),
-    Column("person_id", Integer, ForeignKey("persons.id"), primary_key=True),
-    Column("recipient_type", String(10)),  # "to", "cc", "bcc"
-)
-
 # Association table for email tags
 email_tags = Table(
     "email_tags",
@@ -63,6 +54,9 @@ class Email(Base):
     from_name: Mapped[str | None] = mapped_column(String(255))
     subject: Mapped[str | None] = mapped_column(String(1000))
     date: Mapped[datetime] = mapped_column(index=True)
+    to_addrs: Mapped[str | None] = mapped_column(Text)
+    cc_addrs: Mapped[str | None] = mapped_column(Text)
+    bcc_addrs: Mapped[str | None] = mapped_column(Text)
     in_reply_to: Mapped[str | None] = mapped_column(String(255))
     references: Mapped[str | None] = mapped_column(Text)
 
@@ -88,10 +82,6 @@ class Email(Base):
 
     # Relationships
     thread: Mapped[Thread | None] = relationship(back_populates="emails")
-    sender: Mapped[Person | None] = relationship(
-        foreign_keys="Email.sender_id", back_populates="sent_emails"
-    )
-    sender_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"))
     attachments: Mapped[list[Attachment]] = relationship(
         back_populates="email", cascade="all, delete-orphan"
     )
@@ -101,57 +91,6 @@ class Email(Base):
 
     def __repr__(self) -> str:
         return f"<Email {self.message_id[:30]}... from={self.from_addr}>"
-
-
-class Person(Base):
-    """A person with potentially multiple email addresses."""
-
-    __tablename__ = "persons"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(255), index=True)
-    primary_email: Mapped[str | None] = mapped_column(String(255), index=True)
-    relationship_type: Mapped[str | None] = mapped_column(
-        String(50)
-    )  # "family", "friend", "colleague", etc.
-    notes: Mapped[str | None] = mapped_column(Text)
-
-    # Statistics (denormalized for performance)
-    email_count: Mapped[int] = mapped_column(default=0)
-    first_contact: Mapped[datetime | None] = mapped_column()
-    last_contact: Mapped[datetime | None] = mapped_column()
-
-    # Metadata
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Relationships
-    email_addresses: Mapped[list[PersonEmail]] = relationship(
-        back_populates="person", cascade="all, delete-orphan"
-    )
-    sent_emails: Mapped[list[Email]] = relationship(
-        foreign_keys="Email.sender_id", back_populates="sender"
-    )
-
-    def __repr__(self) -> str:
-        return f"<Person {self.name} ({self.primary_email})>"
-
-
-class PersonEmail(Base):
-    """Maps email addresses to persons (one person can have multiple addresses)."""
-
-    __tablename__ = "person_emails"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"))
-    is_primary: Mapped[bool] = mapped_column(default=False)
-
-    # Relationships
-    person: Mapped[Person] = relationship(back_populates="email_addresses")
-
-    def __repr__(self) -> str:
-        return f"<PersonEmail {self.email} -> {self.person_id}>"
 
 
 class Thread(Base):
@@ -257,7 +196,6 @@ class Annotation(Base):
     # Target (one of these will be set)
     email_id: Mapped[int | None] = mapped_column(ForeignKey("emails.id"), index=True)
     thread_id: Mapped[int | None] = mapped_column(ForeignKey("threads.id"), index=True)
-    person_id: Mapped[int | None] = mapped_column(ForeignKey("persons.id"), index=True)
 
     # Annotation content
     annotation_type: Mapped[str] = mapped_column(
@@ -279,8 +217,6 @@ class Annotation(Base):
             target = f"email={self.email_id}"
         elif self.thread_id:
             target = f"thread={self.thread_id}"
-        elif self.person_id:
-            target = f"person={self.person_id}"
         else:
             target = "unknown"
         return f"<Annotation {self.annotation_type} on {target}>"

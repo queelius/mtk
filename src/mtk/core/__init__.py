@@ -8,8 +8,6 @@ from mtk.core.models import (
     Collection,
     CustomField,
     Email,
-    Person,
-    PersonEmail,
     PrivacyRule,
     Tag,
     Thread,
@@ -19,8 +17,6 @@ __all__ = [
     # Models
     "Base",
     "Email",
-    "Person",
-    "PersonEmail",
     "Thread",
     "Tag",
     "Attachment",

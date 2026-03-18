@@ -24,12 +24,9 @@ from mtk.core.database import Database
 
 TABLE_DESCRIPTIONS: dict[str, str] = {
     "emails": "Email messages with headers, content, and metadata",
-    "persons": "People with potentially multiple email addresses",
-    "person_emails": "Maps email addresses to persons (one person can have multiple addresses)",
     "threads": "Email threads/conversations grouping related emails",
     "tags": "Tags applied to emails (synced from notmuch or created in mtk)",
     "email_tags": "Association table linking emails to tags (many-to-many)",
-    "email_recipients": "Association table for email recipients (To/CC/BCC)",
     "attachments": "Email attachment metadata (filename, type, size)",
     "annotations": "User annotations/notes on emails, threads, or persons",
     "collections": "User-defined email collections (manual or smart query-based)",
@@ -47,7 +44,6 @@ TABLE_DESCRIPTIONS: dict[str, str] = {
 QUERY_TIPS: list[str] = [
     "Use emails_fts for full-text search: SELECT * FROM emails_fts WHERE emails_fts MATCH 'term'",
     "Join emails to tags via email_tags: SELECT e.* FROM emails e JOIN email_tags et ON e.id = et.email_id JOIN tags t ON et.tag_id = t.id WHERE t.name = 'inbox'",
-    "Find person's emails: SELECT e.* FROM emails e JOIN person_emails pe ON e.from_addr = pe.email WHERE pe.person_id = ?",
     "Thread conversation: SELECT * FROM emails WHERE thread_id = ? ORDER BY date",
     "Date filtering: SELECT * FROM emails WHERE date >= '2024-01-01' AND date < '2024-02-01'",
     "FTS5 supports prefix queries: MATCH 'proj*' and phrase queries: MATCH '\"exact phrase\"'",

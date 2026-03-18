@@ -63,16 +63,6 @@ class TestSearchCommand:
             assert result.exit_code != 0 or "not initialized" in result.output.lower()
 
 
-class TestPeopleCommand:
-    """Tests for the people command."""
-
-    def test_people_help(self) -> None:
-        """people command should have help."""
-        result = runner.invoke(app, ["people", "--help"])
-        assert result.exit_code == 0
-        assert "people" in result.output.lower()
-
-
 class TestStatsCommand:
     """Tests for the stats command."""
 

@@ -25,8 +25,6 @@ from mtk.core.models import (
     Attachment,
     Collection,
     Email,
-    Person,
-    PersonEmail,
     Tag,
     Thread,
 )
@@ -381,39 +379,6 @@ Nested email.
 def populated_db(db: Database) -> Database:
     """Database with comprehensive sample data."""
     with db.session() as session:
-        # Create persons
-        alice = Person(
-            name="Alice Smith",
-            primary_email="alice@example.com",
-            relationship_type="colleague",
-            email_count=10,
-            first_contact=datetime(2023, 1, 1),
-            last_contact=datetime(2024, 1, 15),
-        )
-        bob = Person(
-            name="Bob Jones",
-            primary_email="bob@example.com",
-            relationship_type="friend",
-            email_count=5,
-            first_contact=datetime(2023, 6, 1),
-            last_contact=datetime(2024, 1, 15),
-        )
-        charlie = Person(
-            name="Charlie Brown",
-            primary_email="charlie@example.com",
-            relationship_type="family",
-            email_count=3,
-        )
-        session.add_all([alice, bob, charlie])
-        session.flush()
-
-        # Create person email mappings
-        session.add(PersonEmail(email="alice@example.com", person_id=alice.id, is_primary=True))
-        session.add(PersonEmail(email="alice.smith@work.com", person_id=alice.id, is_primary=False))
-        session.add(PersonEmail(email="bob@example.com", person_id=bob.id, is_primary=True))
-        session.add(PersonEmail(email="charlie@example.com", person_id=charlie.id, is_primary=True))
-        session.flush()
-
         # Create thread
         thread1 = Thread(
             thread_id="thread-001",
@@ -441,7 +406,7 @@ def populated_db(db: Database) -> Database:
                 "date": datetime(2024, 1, 15, 10, 0, 0),
                 "body_text": "Let's discuss the new project requirements.\n\nI think we should focus on the MVP first.",
                 "body_preview": "Let's discuss the new project requirements. I think we should focus on the MVP first.",
-                "sender_id": alice.id,
+                "to_addrs": "bob@example.com",
             },
             {
                 "message_id": "email2@example.com",
@@ -453,7 +418,6 @@ def populated_db(db: Database) -> Database:
                 "body_text": "I agree. The MVP should include core features only.",
                 "body_preview": "I agree. The MVP should include core features only.",
                 "in_reply_to": "email1@example.com",
-                "sender_id": bob.id,
             },
             {
                 "message_id": "email3@example.com",
@@ -465,7 +429,6 @@ def populated_db(db: Database) -> Database:
                 "body_text": "Great, let's schedule a meeting tomorrow.",
                 "body_preview": "Great, let's schedule a meeting tomorrow.",
                 "in_reply_to": "email2@example.com",
-                "sender_id": alice.id,
             },
             {
                 "message_id": "email4@example.com",
@@ -476,7 +439,6 @@ def populated_db(db: Database) -> Database:
                 "date": datetime(2024, 1, 16, 9, 0, 0),
                 "body_text": "Anyone free this weekend for a hike?",
                 "body_preview": "Anyone free this weekend for a hike?",
-                "sender_id": charlie.id,
             },
             {
                 "message_id": "email5@example.com",
@@ -486,7 +448,6 @@ def populated_db(db: Database) -> Database:
                 "date": datetime(2024, 1, 17, 8, 0, 0),
                 "body_text": "The production server is down. Need immediate help!",
                 "body_preview": "The production server is down. Need immediate help!",
-                "sender_id": alice.id,
             },
         ]
 
@@ -642,45 +603,9 @@ class EmailFactory:
         return email
 
 
-class PersonFactory:
-    """Factory for creating test Person objects."""
-
-    def __init__(self, session: Session):
-        self.session = session
-        self._counter = 0
-
-    def create(
-        self,
-        *,
-        name: str | None = None,
-        email: str | None = None,
-        **kwargs,
-    ) -> Person:
-        """Create and save a Person with associated PersonEmail."""
-        self._counter += 1
-        if name is None:
-            name = f"Person {self._counter}"
-        if email is None:
-            email = f"person{self._counter}@example.com"
-
-        person = Person(name=name, primary_email=email, **kwargs)
-        self.session.add(person)
-        self.session.flush()
-
-        person_email = PersonEmail(email=email, person_id=person.id, is_primary=True)
-        self.session.add(person_email)
-        self.session.flush()
-
-        return person
-
-
 @pytest.fixture
 def email_factory(session: Session) -> EmailFactory:
     """Get an EmailFactory instance."""
     return EmailFactory(session)
 
 
-@pytest.fixture
-def person_factory(session: Session) -> PersonFactory:
-    """Get a PersonFactory instance."""
-    return PersonFactory(session)

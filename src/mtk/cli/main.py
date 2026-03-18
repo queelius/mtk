@@ -9,7 +9,6 @@ Usage:
     mtk thread <id>              Show full thread conversation
     mtk reply <id>               Prepare context for reply
     mtk search QUERY             Search emails
-    mtk people                   List/manage correspondents
     mtk import                   Import emails
     mtk shell                    Interactive shell mode
 """
@@ -655,7 +654,6 @@ class ImportResult:
 def _run_import_with_importer(importer, db: Database, json_output: bool = False) -> ImportResult:  # type: ignore
     """Run import with progress display."""
     from mtk.core.models import Attachment, Email
-    from mtk.people.resolver import PersonResolver
 
     result = ImportResult(source=str(importer.source_path))
 
@@ -671,8 +669,6 @@ def _run_import_with_importer(importer, db: Database, json_output: bool = False)
         task = progress.add_task("Importing emails...", total=None)
 
         with db.session() as session:
-            resolver = PersonResolver(session)
-
             for parsed, error in importer.import_all():
                 if error:
                     result.errors += 1
@@ -699,9 +695,9 @@ def _run_import_with_importer(importer, db: Database, json_output: bool = False)
                     file_path=str(parsed.file_path) if parsed.file_path else None,
                 )
 
-                if parsed.from_addr:
-                    sender = resolver.resolve(parsed.from_addr, parsed.from_name)
-                    email.sender_id = sender.id
+                email.to_addrs = ",".join(parsed.to_addrs) if parsed.to_addrs else None
+                email.cc_addrs = ",".join(parsed.cc_addrs) if parsed.cc_addrs else None
+                email.bcc_addrs = ",".join(parsed.bcc_addrs) if parsed.bcc_addrs else None
 
                 for att in parsed.attachments:
                     attachment = Attachment(
@@ -801,111 +797,17 @@ def search(
         console.print(table)
 
 
-# === People Commands ===
-people_app = typer.Typer(help="Manage correspondents")
-app.add_typer(people_app, name="people")
-
-
-@people_app.command("list")
-def people_list(
-    limit: int = typer.Option(20, "--limit", "-n"),
-    json: bool = typer.Option(False, "--json", "-j"),
-) -> None:
-    """List top correspondents."""
-    from mtk.people import RelationshipAnalyzer
-
-    db = get_db()
-    with db.session() as session:
-        analyzer = RelationshipAnalyzer(session)
-        stats = analyzer.get_top_correspondents(limit=limit)
-
-        if json:
-            data = [
-                {
-                    "id": s.person_id,
-                    "name": s.person_name,
-                    "email": s.primary_email,
-                    "email_count": s.total_emails,
-                }
-                for s in stats
-            ]
-            print(json_lib.dumps(data, indent=2))
-            return
-
-        table = Table(title=f"Top Correspondents ({len(stats)})")
-        table.add_column("ID", style="dim", width=4)
-        table.add_column("Name", width=25)
-        table.add_column("Email", width=30)
-        table.add_column("Emails", justify="right", width=8)
-
-        for s in stats:
-            table.add_row(
-                str(s.person_id),
-                s.person_name[:24],
-                s.primary_email[:29],
-                str(s.total_emails),
-            )
-
-        console.print(table)
-
-
-@people_app.command("show")
-def people_show(
-    person_id: int = typer.Argument(..., help="Person ID"),
-    json: bool = typer.Option(False, "--json", "-j"),
-) -> None:
-    """Show details for a specific person."""
-    from mtk.people import RelationshipAnalyzer
-
-    db = get_db()
-    with db.session() as session:
-        analyzer = RelationshipAnalyzer(session)
-        stats = analyzer.get_correspondent_stats(person_id)
-
-        if not stats:
-            console.print(f"[red]Person not found: {person_id}[/red]")
-            raise typer.Exit(1)
-
-        if json:
-            data = {
-                "id": stats.person_id,
-                "name": stats.person_name,
-                "email": stats.primary_email,
-                "email_count": stats.total_emails,
-                "first_email": stats.first_email.isoformat() if stats.first_email else None,
-                "last_email": stats.last_email.isoformat() if stats.last_email else None,
-                "thread_count": stats.thread_count,
-                "relationship_type": stats.relationship_type,
-            }
-            print(json_lib.dumps(data, indent=2))
-            return
-
-        console.print(
-            Panel.fit(
-                f"""[bold]Name:[/bold] {stats.person_name}
-[bold]Email:[/bold] {stats.primary_email}
-[bold]Type:[/bold] {stats.relationship_type or "Unknown"}
-[bold]Total Emails:[/bold] {stats.total_emails}
-[bold]Threads:[/bold] {stats.thread_count}
-[bold]First Contact:[/bold] {format_date(stats.first_email)}
-[bold]Last Contact:[/bold] {format_date(stats.last_email)}""",
-                title="Person Details",
-            )
-        )
-
-
 # === Stats Command ===
 @app.command()
 def stats(json: bool = typer.Option(False, "--json", "-j")) -> None:
     """Show archive statistics."""
     from sqlalchemy import func, select
 
-    from mtk.core.models import Attachment, Email, Person, Tag, Thread
+    from mtk.core.models import Attachment, Email, Tag, Thread
 
     db = get_db()
     with db.session() as session:
         email_count = session.execute(select(func.count(Email.id))).scalar() or 0
-        person_count = session.execute(select(func.count(Person.id))).scalar() or 0
         thread_count = session.execute(select(func.count(Thread.id))).scalar() or 0
         tag_count = session.execute(select(func.count(Tag.id))).scalar() or 0
         attachment_count = session.execute(select(func.count(Attachment.id))).scalar() or 0
@@ -920,7 +822,6 @@ def stats(json: bool = typer.Option(False, "--json", "-j")) -> None:
     if json:
         data = {
             "emails": email_count,
-            "people": person_count,
             "threads": thread_count,
             "tags": tag_count,
             "attachments": attachment_count,
@@ -944,7 +845,6 @@ def stats(json: bool = typer.Option(False, "--json", "-j")) -> None:
         f"""[bold]Email Archive Statistics[/bold]
 
 Emails:      {email_count:,}
-People:      {person_count:,}
 Threads:     {thread_count:,}
 Tags:        {tag_count:,}
 Attachments: {attachment_count:,}

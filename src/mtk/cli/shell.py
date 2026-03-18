@@ -254,11 +254,10 @@ class MtkShell(cmd.Cmd):
         """Show archive statistics."""
         from sqlalchemy import func, select
 
-        from mtk.core.models import Email, Person, Tag, Thread
+        from mtk.core.models import Email, Tag, Thread
 
         with self.db.session() as session:
             email_count = session.execute(select(func.count(Email.id))).scalar() or 0
-            person_count = session.execute(select(func.count(Person.id))).scalar() or 0
             thread_count = session.execute(select(func.count(Thread.id))).scalar() or 0
             tag_count = session.execute(select(func.count(Tag.id))).scalar() or 0
 
@@ -266,40 +265,12 @@ class MtkShell(cmd.Cmd):
                 Panel.fit(
                     f"""[bold]Archive Statistics[/bold]
 
-📧 Emails:  {email_count:,}
-👥 People:  {person_count:,}
-💬 Threads: {thread_count:,}
-🏷️  Tags:    {tag_count:,}""",
+Emails:  {email_count:,}
+Threads: {thread_count:,}
+Tags:    {tag_count:,}""",
                     title="mtk",
                 )
             )
-
-    def do_people(self, arg: str) -> None:
-        """List top correspondents. Usage: people [limit]"""
-        from mtk.people import RelationshipAnalyzer
-
-        limit = 10
-        if arg:
-            with contextlib.suppress(ValueError):
-                limit = int(arg)
-
-        with self.db.session() as session:
-            analyzer = RelationshipAnalyzer(session)
-            stats = analyzer.get_top_correspondents(limit=limit)
-
-            if not stats:
-                console.print("[yellow]No correspondents found[/yellow]")
-                return
-
-            table = Table(title="Top Correspondents")
-            table.add_column("Name", width=25)
-            table.add_column("Email", width=30)
-            table.add_column("Emails", justify="right", width=8)
-
-            for s in stats:
-                table.add_row(s.person_name[:24], s.primary_email[:29], str(s.total_emails))
-
-            console.print(table)
 
     # === Exit Commands ===
 

@@ -127,7 +127,7 @@ class TestGetSchema:
         with populated_db.session() as session:
             result = json.loads(get_schema(session))
             tables = result["tables"]
-            for name in ["emails", "persons", "threads", "tags"]:
+            for name in ["emails", "threads", "tags"]:
                 assert name in tables, f"Missing table: {name}"
 
     def test_table_has_columns(self, populated_db: Database) -> None:

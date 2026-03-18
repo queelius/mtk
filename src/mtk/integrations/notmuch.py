@@ -310,7 +310,6 @@ class NotmuchSync:
 
         from mtk.core.models import Email, Tag
         from mtk.importers.parser import EmailParser
-        from mtk.people.resolver import PersonResolver
 
         result = NotmuchSyncResult(operation="import")
 
@@ -320,7 +319,6 @@ class NotmuchSync:
             result.errors.append(str(e))
             return result
 
-        resolver = PersonResolver(self.session)
         parser = EmailParser()
 
         try:
@@ -359,9 +357,9 @@ class NotmuchSync:
                         file_path=str(filepath),
                     )
 
-                    if parsed.from_addr:
-                        sender = resolver.resolve(parsed.from_addr, parsed.from_name)
-                        email.sender_id = sender.id
+                    email.to_addrs = ",".join(parsed.to_addrs) if parsed.to_addrs else None
+                    email.cc_addrs = ",".join(parsed.cc_addrs) if parsed.cc_addrs else None
+                    email.bcc_addrs = ",".join(parsed.bcc_addrs) if parsed.bcc_addrs else None
 
                     self.session.add(email)
                     result.emails_processed += 1

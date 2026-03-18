@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from mtk.core.database import Database
-from mtk.core.models import Email, Person, Tag, Thread
+from mtk.core.models import Email, Tag, Thread
 from mtk.export.html_export import HtmlExporter
 
 
@@ -20,20 +20,6 @@ def file_db(tmp_path: Path) -> Database:
     db.create_tables()
 
     with db.session() as session:
-        # Create persons
-        alice = Person(
-            name="Alice Smith",
-            primary_email="alice@example.com",
-            email_count=3,
-        )
-        bob = Person(
-            name="Bob Jones",
-            primary_email="bob@example.com",
-            email_count=1,
-        )
-        session.add_all([alice, bob])
-        session.flush()
-
         # Create thread
         thread1 = Thread(
             thread_id="thread-001",
@@ -56,7 +42,6 @@ def file_db(tmp_path: Path) -> Database:
                 "date": datetime(2024, 1, 15, 10, 0, 0),
                 "body_text": "Let's discuss the new project.",
                 "body_preview": "Let's discuss the new project.",
-                "sender_id": alice.id,
             },
             {
                 "message_id": "email2@example.com",
@@ -68,7 +53,6 @@ def file_db(tmp_path: Path) -> Database:
                 "body_text": "Sounds good, let's do it.",
                 "body_preview": "Sounds good, let's do it.",
                 "in_reply_to": "email1@example.com",
-                "sender_id": bob.id,
             },
             {
                 "message_id": "email3@example.com",
@@ -80,7 +64,6 @@ def file_db(tmp_path: Path) -> Database:
                 "body_text": "Great, meeting tomorrow.",
                 "body_preview": "Great, meeting tomorrow.",
                 "in_reply_to": "email2@example.com",
-                "sender_id": alice.id,
             },
             {
                 "message_id": "email4@example.com",
@@ -90,7 +73,6 @@ def file_db(tmp_path: Path) -> Database:
                 "date": datetime(2024, 1, 16, 9, 0, 0),
                 "body_text": "Anyone free this weekend?",
                 "body_preview": "Anyone free this weekend?",
-                "sender_id": alice.id,
             },
             {
                 "message_id": "email5@example.com",
@@ -100,7 +82,6 @@ def file_db(tmp_path: Path) -> Database:
                 "date": datetime(2024, 1, 17, 8, 0, 0),
                 "body_text": "The server is down!",
                 "body_preview": "The server is down!",
-                "sender_id": bob.id,
             },
         ]
         for data in emails_data:
