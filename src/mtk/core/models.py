@@ -1,8 +1,9 @@
 """SQLAlchemy ORM models for mtk database.
 
-Core models for email archival and relationship tracking:
+Core models for email archival:
 - Email, Thread, Attachment - Core email data
-- Tag - Organization and tagging
+- Tag, email_tags - Organization and tagging (many-to-many)
+- ImapSyncState - IMAP incremental sync tracking
 """
 
 from __future__ import annotations

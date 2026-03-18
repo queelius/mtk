@@ -23,25 +23,32 @@ from mtk.core.database import Database
 # ---------------------------------------------------------------------------
 
 TABLE_DESCRIPTIONS: dict[str, str] = {
-    "emails": "Email messages with headers, content, and metadata (metadata_json for flexible extras)",
-    "threads": "Email threads/conversations grouping related emails",
-    "tags": "Tags applied to emails (created in mtk or synced from IMAP)",
-    "email_tags": "Association table linking emails to tags (many-to-many)",
-    "attachments": "Email attachment metadata (filename, type, size)",
-    "imap_sync_state": "IMAP sync state per account/folder for incremental sync",
+    "emails": (
+        "Email messages with headers, content, and metadata. "
+        "to_addrs, cc_addrs, bcc_addrs are comma-separated address strings. "
+        "metadata_json stores flexible JSON extras (e.g. Gmail labels) queryable via json_extract(metadata_json, '$.key')."
+    ),
+    "threads": "Email threads/conversations grouping related emails by thread_id.",
+    "tags": "Tags applied to emails. source='mtk' for locally created tags, 'imap' for IMAP-synced tags.",
+    "email_tags": "Association table linking emails to tags (many-to-many join via email_id and tag_id).",
+    "attachments": "Email attachment metadata (filename, content_type, size). Content is not stored — retrieve from original file.",
+    "imap_sync_state": "IMAP sync state per account/folder for incremental sync (last_uid, uid_validity, highest_modseq).",
     "emails_fts": (
         "FTS5 full-text search index on emails (subject, body_text, from_addr, from_name). "
-        "Query with: SELECT * FROM emails_fts WHERE emails_fts MATCH 'search terms'"
+        "Query with: SELECT * FROM emails_fts WHERE emails_fts MATCH 'search terms'. "
+        "Supports prefix search (proj*), phrase search (\"exact phrase\"), and boolean operators (AND, OR, NOT)."
     ),
 }
 
 QUERY_TIPS: list[str] = [
-    "Use emails_fts for full-text search: SELECT * FROM emails_fts WHERE emails_fts MATCH 'term'",
-    "Join emails to tags via email_tags: SELECT e.* FROM emails e JOIN email_tags et ON e.id = et.email_id JOIN tags t ON et.tag_id = t.id WHERE t.name = 'inbox'",
-    "Thread conversation: SELECT * FROM emails WHERE thread_id = ? ORDER BY date",
+    "FTS5 full-text search: SELECT rowid, * FROM emails_fts WHERE emails_fts MATCH 'project report'",
+    "FTS5 prefix and phrase: MATCH 'proj*' for prefix, MATCH '\"exact phrase\"' for phrases, MATCH 'a AND b' for boolean",
+    "Tag join: SELECT e.* FROM emails e JOIN email_tags et ON e.id = et.email_id JOIN tags t ON et.tag_id = t.id WHERE t.name = 'inbox'",
+    "Thread conversation: SELECT * FROM emails WHERE thread_id = '<thread-id-here>' ORDER BY date",
     "Date filtering: SELECT * FROM emails WHERE date >= '2024-01-01' AND date < '2024-02-01'",
-    "FTS5 supports prefix queries: MATCH 'proj*' and phrase queries: MATCH '\"exact phrase\"'",
-    "Count by sender: SELECT from_addr, COUNT(*) as cnt FROM emails GROUP BY from_addr ORDER BY cnt DESC",
+    "Count by sender: SELECT from_addr, COUNT(*) AS cnt FROM emails GROUP BY from_addr ORDER BY cnt DESC LIMIT 20",
+    "Recipient search (to/cc/bcc): SELECT * FROM emails WHERE to_addrs LIKE '%alice@example.com%'",
+    "JSON metadata query: SELECT * FROM emails WHERE json_extract(metadata_json, '$.source') = 'gmail'",
 ]
 
 # ---------------------------------------------------------------------------
