@@ -1,7 +1,6 @@
 """Email export functionality for mtk.
 
 Supports multiple formats: JSON, mbox, Markdown, HTML (single-file app), and arkiv (JSONL).
-Integrates with privacy filtering for safe exports.
 """
 
 from mtk.export.arkiv_export import ArkivExporter

@@ -22,14 +22,12 @@ class MboxExporter(Exporter):
 
     def export(self, emails: list[Any]) -> ExportResult:
         """Export emails to mbox file."""
-        filtered_emails, privacy_report = self._apply_privacy(emails)
+        email_dicts = self._emails_to_dicts(emails)
 
         result = ExportResult(
             format=self.format_name,
             output_path=str(self.output_path),
             emails_exported=0,
-            emails_excluded=len(emails) - len(filtered_emails),
-            privacy_report=privacy_report,
         )
 
         # Create mbox
@@ -37,7 +35,7 @@ class MboxExporter(Exporter):
             box = mbox(str(self.output_path))
             box.lock()
 
-            for email_data in filtered_emails:
+            for email_data in email_dicts:
                 try:
                     msg = self._create_message(email_data)
                     box.add(msg)

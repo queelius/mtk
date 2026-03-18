@@ -21,9 +21,6 @@ class MtkConfig:
     # Behavior
     auto_sync: bool = True
 
-    # Privacy defaults
-    default_export_allowed: bool = True
-
     # IMAP accounts
     imap_accounts: dict[str, ImapAccountConfig] = field(default_factory=dict)
 
@@ -71,7 +68,6 @@ class MtkConfig:
             config.db_path = Path(data["db_path"]).expanduser()
 
         config.auto_sync = data.get("auto_sync", True)
-        config.default_export_allowed = data.get("default_export_allowed", True)
 
         # IMAP accounts
         for name, acct_data in data.get("imap_accounts", {}).items():
@@ -86,7 +82,6 @@ class MtkConfig:
             "notmuch_config": str(self.notmuch_config) if self.notmuch_config else None,
             "db_path": str(self.db_path) if self.db_path else None,
             "auto_sync": self.auto_sync,
-            "default_export_allowed": self.default_export_allowed,
         }
         if self.imap_accounts:
             data["imap_accounts"] = {
@@ -157,62 +152,3 @@ class ImapAccountConfig:
             "oauth2": self.oauth2,
         }
 
-
-@dataclass
-class PrivacyConfig:
-    """Privacy rules configuration."""
-
-    exclude_addresses: list[str] = field(default_factory=list)
-    exclude_tags: list[str] = field(default_factory=list)
-    exclude_patterns: list[str] = field(default_factory=list)
-    redact_patterns: list[dict[str, str]] = field(default_factory=list)
-
-    @classmethod
-    def load(cls, config_path: Path | None = None) -> PrivacyConfig:
-        """Load privacy config from file."""
-        if config_path is None:
-            config_path = MtkConfig.default_config_dir() / "privacy.yaml"
-
-        if not config_path.exists():
-            return cls()
-
-        with open(config_path) as f:
-            data = yaml.safe_load(f) or {}
-
-        return cls.from_dict(data)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> PrivacyConfig:
-        """Create privacy config from dictionary."""
-        exclude = data.get("exclude", {})
-        redact = data.get("redact", {})
-
-        return cls(
-            exclude_addresses=exclude.get("addresses", []),
-            exclude_tags=exclude.get("tags", []),
-            exclude_patterns=exclude.get("patterns", []),
-            redact_patterns=redact.get("patterns", []),
-        )
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "exclude": {
-                "addresses": self.exclude_addresses,
-                "tags": self.exclude_tags,
-                "patterns": self.exclude_patterns,
-            },
-            "redact": {
-                "patterns": self.redact_patterns,
-            },
-        }
-
-    def save(self, config_path: Path | None = None) -> None:
-        """Save privacy config to file."""
-        if config_path is None:
-            config_path = MtkConfig.default_config_dir() / "privacy.yaml"
-
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(config_path, "w") as f:
-            yaml.safe_dump(self.to_dict(), f, default_flow_style=False)

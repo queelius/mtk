@@ -23,25 +23,23 @@ class JsonExporter(Exporter):
 
     def export(self, emails: list[Any]) -> ExportResult:
         """Export emails to JSON file."""
-        filtered_emails, privacy_report = self._apply_privacy(emails)
+        email_dicts = self._emails_to_dicts(emails)
 
         result = ExportResult(
             format=self.format_name,
             output_path=str(self.output_path),
-            emails_exported=len(filtered_emails),
-            emails_excluded=len(emails) - len(filtered_emails),
-            privacy_report=privacy_report,
+            emails_exported=len(email_dicts),
         )
 
         # Build export data
         emails_list: list[dict[str, Any]] = []
         export_data: dict[str, Any] = {
             "exported_at": datetime.now().isoformat(),
-            "total_emails": len(filtered_emails),
+            "total_emails": len(email_dicts),
             "emails": emails_list,
         }
 
-        for email_data in filtered_emails:
+        for email_data in email_dicts:
             # Convert datetime to ISO format
             date = email_data.get("date")
             if isinstance(date, datetime):

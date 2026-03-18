@@ -19,7 +19,6 @@ from mtk.export.base import ExportResult
 
 if TYPE_CHECKING:
     from mtk.core.models import Email
-    from mtk.core.privacy import PrivacyFilter
 
 
 class ArkivExporter:
@@ -28,11 +27,9 @@ class ArkivExporter:
     def __init__(
         self,
         output_path: Path,
-        privacy_filter: PrivacyFilter | None = None,
         include_body: bool = True,
     ) -> None:
         self.output_path = Path(output_path)
-        self.privacy_filter = privacy_filter
         self.include_body = include_body
 
     def _email_to_record(self, email: Email) -> dict:

@@ -10,9 +10,40 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from mtk.core.models import Email
-    from mtk.core.privacy import PrivacyFilter, PrivacyReport
 
-from mtk.core.privacy import _email_to_dict
+
+def _email_to_dict(email: Email) -> dict[str, Any]:
+    """Convert an Email ORM object to a plain dictionary.
+
+    This is the canonical conversion used by export.
+    """
+    return {
+        "message_id": email.message_id,
+        "from_addr": email.from_addr,
+        "from_name": email.from_name,
+        "to_addrs": email.to_addrs,
+        "cc_addrs": email.cc_addrs,
+        "bcc_addrs": email.bcc_addrs,
+        "subject": email.subject,
+        "date": email.date,
+        "in_reply_to": email.in_reply_to,
+        "references": email.references,
+        "body_text": email.body_text,
+        "body_html": email.body_html,
+        "body_preview": email.body_preview,
+        "thread_id": email.thread_id,
+        "tags": [t.name for t in email.tags] if hasattr(email, "tags") and email.tags else [],
+        "attachments": [
+            {
+                "filename": a.filename,
+                "content_type": a.content_type,
+                "size": a.size,
+            }
+            for a in email.attachments
+        ]
+        if hasattr(email, "attachments") and email.attachments
+        else [],
+    }
 
 
 @dataclass
@@ -23,10 +54,8 @@ class ExportResult:
     output_path: str
     emails_exported: int = 0
     emails_excluded: int = 0
-    emails_redacted: int = 0
     attachments_exported: int = 0
     errors: list[str] = field(default_factory=list)
-    privacy_report: PrivacyReport | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON output."""
@@ -35,17 +64,10 @@ class ExportResult:
             "output_path": self.output_path,
             "emails_exported": self.emails_exported,
             "emails_excluded": self.emails_excluded,
-            "emails_redacted": self.emails_redacted,
             "attachments_exported": self.attachments_exported,
         }
         if self.errors:
             result["errors"] = self.errors
-        if self.privacy_report:
-            result["privacy"] = {
-                "excluded": self.privacy_report.excluded_count,
-                "redacted": self.privacy_report.redacted_count,
-                "exclusion_reasons": self.privacy_report.exclusion_reasons,
-            }
         return result
 
 
@@ -57,11 +79,9 @@ class Exporter(ABC):
     def __init__(
         self,
         output_path: Path,
-        privacy_filter: PrivacyFilter | None = None,
         include_attachments: bool = False,
     ) -> None:
         self.output_path = output_path
-        self.privacy_filter = privacy_filter
         self.include_attachments = include_attachments
 
     @abstractmethod
@@ -76,19 +96,13 @@ class Exporter(ABC):
         """
         pass
 
-    def _apply_privacy(
-        self, emails: list[Email]
-    ) -> tuple[list[dict[str, Any]], PrivacyReport | None]:
-        """Apply privacy filtering if configured.
+    def _emails_to_dicts(self, emails: list[Email]) -> list[dict[str, Any]]:
+        """Convert emails to dictionaries for export.
 
         Returns:
-            Tuple of (filtered email dicts, privacy report or None).
+            List of email dictionaries.
         """
-        if self.privacy_filter:
-            return self.privacy_filter.filter_emails(emails)
-
-        # No privacy filter - convert to dicts without filtering
-        return [_email_to_dict(email) for email in emails], None
+        return [_email_to_dict(email) for email in emails]
 
     def _format_date(self, dt: datetime | None) -> str:
         """Format datetime for export."""

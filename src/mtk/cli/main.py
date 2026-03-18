@@ -1155,120 +1155,38 @@ def tag_batch(
             console.print(f"[green]Modified {modified} of {len(emails)} matched emails[/green]")
 
 
-# === Privacy Commands ===
-privacy_app = typer.Typer(help="Privacy and redaction tools")
-app.add_typer(privacy_app, name="privacy")
-
-
-@privacy_app.command("check")
-def privacy_check(
-    query: str | None = typer.Argument(None, help="Search query to filter emails"),
-    json: bool = typer.Option(False, "--json", "-j", help="Output as JSON"),
-) -> None:
-    """Preview what privacy rules would exclude or redact.
-
-    Shows statistics about what would be filtered without making changes.
-    """
-    from sqlalchemy import select
-
-    from mtk.core.config import PrivacyConfig
-    from mtk.core.models import Email
-    from mtk.core.privacy import PrivacyFilter
-    from mtk.search import SearchEngine
-
-    privacy_config = PrivacyConfig.load()
-    pfilter = PrivacyFilter(privacy_config)
-
-    db = get_db()
-    with db.session() as session:
-        if query:
-            engine = SearchEngine(session)
-            results = engine.search(query, limit=10000)
-            emails = [r.email for r in results]
-        else:
-            emails = list(session.execute(select(Email)).scalars())
-
-        report = pfilter.preview(emails)
-
-    if json:
-        print(
-            json_lib.dumps(
-                {
-                    "total_emails": report.total_emails,
-                    "excluded": report.excluded_count,
-                    "redacted": report.redacted_count,
-                    "exclusion_reasons": report.exclusion_reasons,
-                    "redaction_patterns": report.redaction_patterns_applied,
-                },
-                indent=2,
-            )
-        )
-    else:
-        console.print(
-            Panel.fit(
-                f"""[bold]Privacy Filter Preview[/bold]
-
-Total emails checked: {report.total_emails}
-Would exclude: {report.excluded_count}
-Would redact: {report.redacted_count}""",
-                title="Privacy Check",
-            )
-        )
-
-        if report.exclusion_reasons:
-            console.print("\n[bold]Exclusion reasons:[/bold]")
-            for reason, count in report.exclusion_reasons.items():
-                console.print(f"  {reason}: {count}")
-
-        if report.redaction_patterns_applied:
-            console.print("\n[bold]Redaction patterns matched:[/bold]")
-            for pattern, count in report.redaction_patterns_applied.items():
-                console.print(f"  {pattern[:40]}: {count} matches")
-
-
 # === Export Commands ===
 export_app = typer.Typer(help="Export emails to various formats")
 app.add_typer(export_app, name="export")
 
 
-def _prepare_export(session, query: str | None, apply_privacy: bool) -> tuple[list, object]:
-    """Shared setup for export commands: build privacy filter and fetch emails.
+def _prepare_export(session, query: str | None) -> list:
+    """Shared setup for export commands: fetch emails.
 
     Args:
         session: SQLAlchemy session.
         query: Optional search query to filter emails.
-        apply_privacy: Whether to create a privacy filter.
 
     Returns:
-        Tuple of (emails list, privacy filter or None).
+        List of Email objects.
     """
     from sqlalchemy import select
 
-    from mtk.core.config import PrivacyConfig
     from mtk.core.models import Email
-    from mtk.core.privacy import PrivacyFilter
     from mtk.search import SearchEngine
-
-    privacy_filter = None
-    if apply_privacy:
-        privacy_config = PrivacyConfig.load()
-        privacy_filter = PrivacyFilter(privacy_config)
 
     if query:
         engine = SearchEngine(session)
         results = engine.search(query, limit=100000)
-        emails = [r.email for r in results]
-    else:
-        emails = list(session.execute(select(Email)).scalars())
+        return [r.email for r in results]
 
-    return emails, privacy_filter
+    return list(session.execute(select(Email)).scalars())
 
 
 @export_app.command("json")
 def export_json(
     output: Path = typer.Argument(..., help="Output file path"),
     query: str | None = typer.Option(None, "--query", "-q", help="Search query to filter"),
-    apply_privacy: bool = typer.Option(False, "--privacy", "-p", help="Apply privacy rules"),
     pretty: bool = typer.Option(True, "--pretty/--compact", help="Pretty print JSON"),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
@@ -1277,23 +1195,20 @@ def export_json(
 
     db = get_db()
     with db.session() as session:
-        emails, privacy_filter = _prepare_export(session, query, apply_privacy)
-        exporter = JsonExporter(output, privacy_filter=privacy_filter, pretty=pretty)
+        emails = _prepare_export(session, query)
+        exporter = JsonExporter(output, pretty=pretty)
         result = exporter.export(emails)
 
     if json_output:
         print(json_lib.dumps(result.to_dict(), indent=2))
     else:
         console.print(f"[green]Exported {result.emails_exported} emails to {output}[/green]")
-        if result.emails_excluded:
-            console.print(f"[yellow]Excluded {result.emails_excluded} emails (privacy)[/yellow]")
 
 
 @export_app.command("mbox")
 def export_mbox(
     output: Path = typer.Argument(..., help="Output file path"),
     query: str | None = typer.Option(None, "--query", "-q", help="Search query to filter"),
-    apply_privacy: bool = typer.Option(False, "--privacy", "-p", help="Apply privacy rules"),
     json: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
     """Export emails to mbox format."""
@@ -1301,23 +1216,20 @@ def export_mbox(
 
     db = get_db()
     with db.session() as session:
-        emails, privacy_filter = _prepare_export(session, query, apply_privacy)
-        exporter = MboxExporter(output, privacy_filter=privacy_filter)
+        emails = _prepare_export(session, query)
+        exporter = MboxExporter(output)
         result = exporter.export(emails)
 
     if json:
         print(json_lib.dumps(result.to_dict(), indent=2))
     else:
         console.print(f"[green]Exported {result.emails_exported} emails to {output}[/green]")
-        if result.emails_excluded:
-            console.print(f"[yellow]Excluded {result.emails_excluded} emails (privacy)[/yellow]")
 
 
 @export_app.command("markdown")
 def export_markdown(
     output: Path = typer.Argument(..., help="Output directory"),
     query: str | None = typer.Option(None, "--query", "-q", help="Search query to filter"),
-    apply_privacy: bool = typer.Option(False, "--privacy", "-p", help="Apply privacy rules"),
     threads: bool = typer.Option(False, "--threads", "-t", help="Group by thread"),
     json: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
@@ -1326,16 +1238,14 @@ def export_markdown(
 
     db = get_db()
     with db.session() as session:
-        emails, privacy_filter = _prepare_export(session, query, apply_privacy)
-        exporter = MarkdownExporter(output, privacy_filter=privacy_filter, group_by_thread=threads)
+        emails = _prepare_export(session, query)
+        exporter = MarkdownExporter(output, group_by_thread=threads)
         result = exporter.export(emails)
 
     if json:
         print(json_lib.dumps(result.to_dict(), indent=2))
     else:
         console.print(f"[green]Exported {result.emails_exported} emails to {output}/[/green]")
-        if result.emails_excluded:
-            console.print(f"[yellow]Excluded {result.emails_excluded} emails (privacy)[/yellow]")
 
 
 @export_app.command("html")
@@ -1361,7 +1271,6 @@ def export_html(
 def export_arkiv(
     output: Path = typer.Argument(..., help="Output JSONL file path"),
     query: str | None = typer.Option(None, "--query", "-q", help="Search query to filter"),
-    apply_privacy: bool = typer.Option(False, "--privacy", "-p", help="Apply privacy rules"),
     include_body: bool = typer.Option(True, "--body/--no-body", help="Include email body text"),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
@@ -1370,8 +1279,8 @@ def export_arkiv(
 
     db = get_db()
     with db.session() as session:
-        emails, privacy_filter = _prepare_export(session, query, apply_privacy)
-        exporter = ArkivExporter(output, privacy_filter=privacy_filter, include_body=include_body)
+        emails = _prepare_export(session, query)
+        exporter = ArkivExporter(output, include_body=include_body)
         result = exporter.export(emails)
 
     if json_output:

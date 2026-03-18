@@ -23,23 +23,21 @@ class MarkdownExporter(Exporter):
 
     def export(self, emails: list[Any]) -> ExportResult:
         """Export emails to Markdown files."""
-        filtered_emails, privacy_report = self._apply_privacy(emails)
+        email_dicts = self._emails_to_dicts(emails)
 
         result = ExportResult(
             format=self.format_name,
             output_path=str(self.output_path),
             emails_exported=0,
-            emails_excluded=len(emails) - len(filtered_emails),
-            privacy_report=privacy_report,
         )
 
         # Ensure output directory exists
         self.output_path.mkdir(parents=True, exist_ok=True)
 
         if self.group_by_thread:
-            result = self._export_by_thread(filtered_emails, result)
+            result = self._export_by_thread(email_dicts, result)
         else:
-            result = self._export_individual(filtered_emails, result)
+            result = self._export_individual(email_dicts, result)
 
         return result
 

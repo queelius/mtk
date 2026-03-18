@@ -21,7 +21,6 @@ from mtk.core.models import (
     Collection,
     CustomField,
     Email,
-    PrivacyRule,
     Tag,
     Thread,
 )
@@ -278,7 +277,6 @@ class TestEmailModel:
         session.commit()
 
         result = session.get(Email, email.id)
-        assert result.export_allowed is True
         assert result.created_at is not None
         assert result.updated_at is not None
 
@@ -612,55 +610,3 @@ class TestCustomFieldModel:
             session.commit()
 
 
-class TestPrivacyRuleModel:
-    """Tests for PrivacyRule ORM model."""
-
-    def test_create_privacy_rule(self, session) -> None:
-        """Test creating privacy rules."""
-        rule = PrivacyRule(
-            rule_type="exclude",
-            target_type="address",
-            pattern="secret@company.com",
-            enabled=True,
-        )
-        session.add(rule)
-        session.commit()
-
-        result = session.get(PrivacyRule, rule.id)
-        assert result.rule_type == "exclude"
-        assert result.target_type == "address"
-        assert result.pattern == "secret@company.com"
-
-    def test_redact_rule(self, session) -> None:
-        """Test redact rule with replacement."""
-        rule = PrivacyRule(
-            rule_type="redact",
-            target_type="pattern",
-            pattern=r"\d{3}-\d{2}-\d{4}",
-            replacement="[REDACTED SSN]",
-        )
-        session.add(rule)
-        session.commit()
-
-        result = session.get(PrivacyRule, rule.id)
-        assert result.replacement == "[REDACTED SSN]"
-
-    def test_privacy_rule_unique_constraint(self, session) -> None:
-        """Same rule type/target/pattern should be unique."""
-        r1 = PrivacyRule(
-            rule_type="exclude",
-            target_type="address",
-            pattern="test@example.com",
-        )
-        session.add(r1)
-        session.commit()
-
-        r2 = PrivacyRule(
-            rule_type="exclude",
-            target_type="address",
-            pattern="test@example.com",
-        )
-        session.add(r2)
-
-        with pytest.raises(IntegrityError):
-            session.commit()

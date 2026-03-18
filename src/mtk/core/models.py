@@ -3,7 +3,6 @@
 Core models for email archival, annotation, and relationship tracking:
 - Email, Thread, Attachment - Core email data
 - Tag, Annotation, Collection - Organization and metadata
-- PrivacyRule - Export controls
 """
 
 from __future__ import annotations
@@ -72,9 +71,6 @@ class Email(Base):
     imap_uid: Mapped[int | None] = mapped_column()
     imap_account: Mapped[str | None] = mapped_column(String(100))
     imap_folder: Mapped[str | None] = mapped_column(String(255))
-
-    # Privacy
-    export_allowed: Mapped[bool] = mapped_column(default=True)
 
     # Metadata
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
@@ -154,27 +150,6 @@ class Attachment(Base):
 
     def __repr__(self) -> str:
         return f"<Attachment {self.filename} ({self.content_type})>"
-
-
-class PrivacyRule(Base):
-    """Privacy rule for filtering/redacting emails during export."""
-
-    __tablename__ = "privacy_rules"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    rule_type: Mapped[str] = mapped_column(String(20))  # "exclude", "redact"
-    target_type: Mapped[str] = mapped_column(String(20))  # "address", "tag", "pattern"
-    pattern: Mapped[str] = mapped_column(String(500))
-    replacement: Mapped[str | None] = mapped_column(String(200))  # For redaction rules
-    enabled: Mapped[bool] = mapped_column(default=True)
-
-    # Metadata
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-
-    __table_args__ = (UniqueConstraint("rule_type", "target_type", "pattern"),)
-
-    def __repr__(self) -> str:
-        return f"<PrivacyRule {self.rule_type}:{self.target_type}={self.pattern}>"
 
 
 # Association table for collection emails
