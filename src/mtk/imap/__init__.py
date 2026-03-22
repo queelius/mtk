@@ -62,7 +62,7 @@ class ImapSync:
         from mtk.imap.mapping import TagMapper
         from mtk.imap.pull import PullSync
 
-        tag_mapper = TagMapper(is_gmail=self.account.provider == "gmail")
+        tag_mapper = TagMapper(is_gmail=self.account.is_gmail)
         pull_sync = PullSync(self.session, self.account, tag_mapper)
 
         results = []

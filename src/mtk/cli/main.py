@@ -2,10 +2,6 @@
 
 Designed for both human use and Claude Code integration.
 Rich output for readability, JSON output for programmatic use.
-
-Usage:
-    mtk search QUERY             Search emails
-    mtk import                   Import emails
 """
 
 from __future__ import annotations

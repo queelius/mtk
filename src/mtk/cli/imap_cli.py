@@ -11,7 +11,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from mtk.core.config import ImapAccountConfig, MtkConfig
+from mtk.core.config import MtkConfig
+from mtk.imap.account import ImapAccountConfig
 
 imap_app = typer.Typer(help="IMAP email sync")
 console = Console()
