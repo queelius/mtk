@@ -48,3 +48,9 @@ Thumbs.db
 # Project specific
 test_data/
 *.db
+
+# Development sandbox (mbox dumps, test DBs, personal data)
+dev/
+
+# Claude Code session-local state
+.claude/scheduled_tasks.lock

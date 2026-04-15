@@ -93,10 +93,19 @@ def init(
     elif not config.db_path:
         config.db_path = config.default_data_dir() / "mtk.db"
 
-    if config.db_path.exists() and not force:
-        console.print(f"[yellow]Database already exists at {config.db_path}[/yellow]")
-        console.print("Use --force to reinitialize")
-        raise typer.Exit(1)
+    if config.db_path.exists():
+        if not force:
+            console.print(f"[yellow]Database already exists at {config.db_path}[/yellow]")
+            console.print("Use --force to reinitialize")
+            raise typer.Exit(1)
+        # Force reinit: drop the existing database and its WAL/SHM sidecars
+        # so create_tables() starts from a clean slate. (create_all is a no-op
+        # on existing tables, so without this the --force flag does nothing.)
+        config.db_path.unlink()
+        for suffix in ("-wal", "-shm"):
+            sidecar = config.db_path.with_name(config.db_path.name + suffix)
+            if sidecar.exists():
+                sidecar.unlink()
 
     db = Database(config.db_path)
     db.create_tables()
@@ -282,6 +291,11 @@ def _run_import_with_importer(importer, db: Database, json_output: bool = False)
                 email.to_addrs = ",".join(parsed.to_addrs) if parsed.to_addrs else None
                 email.cc_addrs = ",".join(parsed.cc_addrs) if parsed.cc_addrs else None
                 email.bcc_addrs = ",".join(parsed.bcc_addrs) if parsed.bcc_addrs else None
+
+                # Preserve all headers (Gmail labels, List-Id, etc.) as JSON.
+                # Queryable via json_extract(metadata_json, '$.X-Gmail-Labels').
+                if parsed.raw_headers:
+                    email.metadata_json = json_lib.dumps(parsed.raw_headers)
 
                 for att in parsed.attachments:
                     attachment = Attachment(

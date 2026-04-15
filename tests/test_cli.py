@@ -42,6 +42,106 @@ class TestInitCommand:
         assert result.exit_code == 0
         assert "init" in result.output.lower()
 
+    def test_init_creates_fresh_db(self, tmp_path) -> None:
+        """init should create a new database file at the given path."""
+        db_path = tmp_path / "new.db"
+        assert not db_path.exists()
+
+        result = runner.invoke(app, ["init", "--db", str(db_path)])
+
+        assert result.exit_code == 0
+        assert db_path.exists()
+
+    def test_init_refuses_when_db_exists(self, tmp_path) -> None:
+        """init without --force should refuse to overwrite existing DB."""
+        db_path = tmp_path / "existing.db"
+        # Create the DB first
+        runner.invoke(app, ["init", "--db", str(db_path)])
+        assert db_path.exists()
+
+        # Second init without --force should fail
+        result = runner.invoke(app, ["init", "--db", str(db_path)])
+
+        assert result.exit_code != 0
+        assert "already exists" in result.output.lower()
+
+    def test_init_force_drops_existing_data(self, tmp_path) -> None:
+        """init --force must actually reinitialize: existing data is dropped."""
+        import sqlite3
+
+        db_path = tmp_path / "forceful.db"
+        # Create the DB and insert a marker row
+        runner.invoke(app, ["init", "--db", str(db_path)])
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO emails "
+            "(message_id, from_addr, date, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                "marker@example.com",
+                "test@example.com",
+                "2024-01-01 00:00:00",
+                "2024-01-01 00:00:00",
+                "2024-01-01 00:00:00",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        # Verify row is present
+        conn = sqlite3.connect(db_path)
+        (n_before,) = conn.execute("SELECT COUNT(*) FROM emails").fetchone()
+        conn.close()
+        assert n_before == 1, "precondition: row should be in DB before re-init"
+
+        # Force re-init
+        result = runner.invoke(app, ["init", "--db", str(db_path), "--force"])
+        assert result.exit_code == 0, f"init --force failed: {result.output}"
+
+        # The marker row must be gone (DB was truly reinitialized)
+        conn = sqlite3.connect(db_path)
+        (n_after,) = conn.execute("SELECT COUNT(*) FROM emails").fetchone()
+        conn.close()
+        assert n_after == 0, "init --force must drop existing data"
+
+
+class TestImportMetadata:
+    """Tests that import populates the metadata_json column from raw_headers."""
+
+    def test_mbox_import_preserves_gmail_labels(self, tmp_path, sample_gmail_mbox) -> None:
+        """Gmail mbox import should preserve X-Gmail-Labels in metadata_json."""
+        import json as json_lib
+        import sqlite3
+
+        db_path = tmp_path / "gmail_import.db"
+        runner.invoke(app, ["init", "--db", str(db_path)])
+
+        # Point the CLI at this test DB via a patched config loader
+        from mtk.core.config import MtkConfig
+
+        def _load_with_db(*args, **kwargs):
+            cfg = MtkConfig()
+            cfg.db_path = db_path
+            return cfg
+
+        with patch.object(MtkConfig, "load", _load_with_db):
+            result = runner.invoke(app, ["import", "mbox", str(sample_gmail_mbox), "--json"])
+
+        assert result.exit_code == 0, f"import failed: {result.output}"
+
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT metadata_json FROM emails WHERE message_id LIKE '%gmail1%'"
+        ).fetchone()
+        conn.close()
+
+        assert row is not None, "imported email not found in DB"
+        assert row[0] is not None, "metadata_json should be populated from raw_headers"
+
+        meta = json_lib.loads(row[0])
+        assert "X-Gmail-Labels" in meta, f"X-Gmail-Labels missing from metadata: {meta!r}"
+        assert "Important" in meta["X-Gmail-Labels"]
+
 
 class TestSearchCommand:
     """Tests for the search command."""
