@@ -55,6 +55,23 @@ def data_dir(tmp_dir: Path) -> Path:
     return data
 
 
+@pytest.fixture
+def isolated_mtk_config(config_dir: Path, data_dir: Path) -> Iterator[dict[str, Path]]:
+    """Redirect MtkConfig default_config_dir and default_data_dir into tmp_dir.
+
+    Use for CLI tests that would otherwise mutate ~/.config/mtk/config.yaml
+    (e.g., any test that invokes `mtk init` — init calls config.save() which
+    writes to the global config path).
+
+    Yields a dict with 'config_dir' and 'data_dir' paths for assertions.
+    """
+    from mtk.core.config import MtkConfig
+
+    with patch.object(MtkConfig, "default_config_dir", classmethod(lambda cls: config_dir)):
+        with patch.object(MtkConfig, "default_data_dir", classmethod(lambda cls: data_dir)):
+            yield {"config_dir": config_dir, "data_dir": data_dir}
+
+
 # =============================================================================
 # Database Fixtures
 # =============================================================================

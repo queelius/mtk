@@ -42,7 +42,7 @@ class TestInitCommand:
         assert result.exit_code == 0
         assert "init" in result.output.lower()
 
-    def test_init_creates_fresh_db(self, tmp_path) -> None:
+    def test_init_creates_fresh_db(self, tmp_path, isolated_mtk_config) -> None:
         """init should create a new database file at the given path."""
         db_path = tmp_path / "new.db"
         assert not db_path.exists()
@@ -52,7 +52,7 @@ class TestInitCommand:
         assert result.exit_code == 0
         assert db_path.exists()
 
-    def test_init_refuses_when_db_exists(self, tmp_path) -> None:
+    def test_init_refuses_when_db_exists(self, tmp_path, isolated_mtk_config) -> None:
         """init without --force should refuse to overwrite existing DB."""
         db_path = tmp_path / "existing.db"
         # Create the DB first
@@ -65,7 +65,7 @@ class TestInitCommand:
         assert result.exit_code != 0
         assert "already exists" in result.output.lower()
 
-    def test_init_force_drops_existing_data(self, tmp_path) -> None:
+    def test_init_force_drops_existing_data(self, tmp_path, isolated_mtk_config) -> None:
         """init --force must actually reinitialize: existing data is dropped."""
         import sqlite3
 
@@ -108,7 +108,9 @@ class TestInitCommand:
 class TestImportMetadata:
     """Tests that import populates the metadata_json column from raw_headers."""
 
-    def test_mbox_import_preserves_gmail_labels(self, tmp_path, sample_gmail_mbox) -> None:
+    def test_mbox_import_preserves_gmail_labels(
+        self, tmp_path, isolated_mtk_config, sample_gmail_mbox
+    ) -> None:
         """Gmail mbox import should preserve X-Gmail-Labels in metadata_json."""
         import json as json_lib
         import sqlite3
