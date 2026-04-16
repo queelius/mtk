@@ -1,7 +1,7 @@
 """Tests for IMAP sync module.
 
 Tests cover:
-- Tag mapping (IMAP flags ↔ mtk tags, Gmail labels ↔ mtk tags)
+- Tag mapping (IMAP flags to mail-memex tags, Gmail labels to mail-memex tags)
 - Auth manager
 - Sync state management
 - Pull sync with mock IMAPClient
@@ -18,11 +18,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from sqlalchemy import select
 
-from mtk.core.database import Database
-from mtk.core.models import Email, ImapSyncState, Tag
-from mtk.imap.account import ImapAccountConfig
-from mtk.imap.gmail import GmailExtensions
-from mtk.imap.mapping import TagMapper
+from mail_memex.core.database import Database
+from mail_memex.core.models import Email, ImapSyncState, Tag
+from mail_memex.imap.account import ImapAccountConfig
+from mail_memex.imap.gmail import GmailExtensions
+from mail_memex.imap.mapping import TagMapper
 
 # =============================================================================
 # Fixtures
@@ -131,10 +131,10 @@ def imap_populated_db(imap_db: Database) -> Database:
 
 
 class TestTagMapper:
-    """Tests for IMAP ↔ mtk tag mapping."""
+    """Tests for IMAP to mail-memex tag mapping."""
 
     def test_imap_flags_to_tags(self) -> None:
-        """Standard IMAP flags should map to mtk tags."""
+        """Standard IMAP flags should map to mail-memex tags."""
         mapper = TagMapper()
         tags = mapper.imap_to_tags(["\\Seen", "\\Flagged"])
         assert "read" in tags
@@ -148,7 +148,7 @@ class TestTagMapper:
         assert len(tags) == 1
 
     def test_gmail_labels_to_tags(self) -> None:
-        """Gmail labels should map to mtk tags."""
+        """Gmail labels should map to mail-memex tags."""
         mapper = TagMapper(is_gmail=True)
         tags = mapper.imap_to_tags(["\\Seen"], ["\\Inbox", "\\Starred", "CATEGORY_SOCIAL"])
         assert "read" in tags
@@ -230,7 +230,7 @@ class TestImapAccountConfig:
         assert imap_account.is_gmail is False
 
     def test_keyring_service(self, imap_account: ImapAccountConfig) -> None:
-        assert imap_account.keyring_service == "mtk-imap-test"
+        assert imap_account.keyring_service == "mail-memex-imap-test"
 
 
 # =============================================================================
@@ -288,7 +288,7 @@ class TestImapCLI:
         """imap subcommand should have help."""
         from typer.testing import CliRunner
 
-        from mtk.cli.main import app
+        from mail_memex.cli.main import app
 
         runner = CliRunner()
         result = runner.invoke(app, ["imap", "--help"])
@@ -299,7 +299,7 @@ class TestImapCLI:
         """imap accounts should have help."""
         from typer.testing import CliRunner
 
-        from mtk.cli.main import app
+        from mail_memex.cli.main import app
 
         runner = CliRunner()
         result = runner.invoke(app, ["imap", "accounts", "--help"])
@@ -320,7 +320,7 @@ class TestAuthManager:
         mock_keyring.get_password.return_value = "s3cret"
 
         with patch.dict("sys.modules", {"keyring": mock_keyring}):
-            from mtk.imap.auth import AuthManager
+            from mail_memex.imap.auth import AuthManager
 
             mgr = AuthManager()
             # Force the keyring module reference
@@ -339,7 +339,7 @@ class TestAuthManager:
         mock_keyring = MagicMock()
         mock_keyring.get_password.return_value = None
 
-        from mtk.imap.auth import AuthManager
+        from mail_memex.imap.auth import AuthManager
 
         mgr = AuthManager()
         mgr._keyring = mock_keyring
@@ -351,7 +351,7 @@ class TestAuthManager:
         self, imap_account: ImapAccountConfig
     ) -> None:
         """get_password should return None when keyring is not available."""
-        from mtk.imap.auth import AuthManager
+        from mail_memex.imap.auth import AuthManager
 
         mgr = AuthManager()
         mgr._keyring = None
@@ -363,7 +363,7 @@ class TestAuthManager:
         """store_password should save password in keyring."""
         mock_keyring = MagicMock()
 
-        from mtk.imap.auth import AuthManager
+        from mail_memex.imap.auth import AuthManager
 
         mgr = AuthManager()
         mgr._keyring = mock_keyring
@@ -377,7 +377,7 @@ class TestAuthManager:
         self, imap_account: ImapAccountConfig
     ) -> None:
         """store_password should raise RuntimeError when keyring is not available."""
-        from mtk.imap.auth import AuthManager
+        from mail_memex.imap.auth import AuthManager
 
         mgr = AuthManager()
         mgr._keyring = None
@@ -389,7 +389,7 @@ class TestAuthManager:
         """delete_password should remove password from keyring."""
         mock_keyring = MagicMock()
 
-        from mtk.imap.auth import AuthManager
+        from mail_memex.imap.auth import AuthManager
 
         mgr = AuthManager()
         mgr._keyring = mock_keyring
@@ -404,7 +404,7 @@ class TestAuthManager:
         mock_keyring = MagicMock()
         mock_keyring.delete_password.side_effect = Exception("keyring error")
 
-        from mtk.imap.auth import AuthManager
+        from mail_memex.imap.auth import AuthManager
 
         mgr = AuthManager()
         mgr._keyring = mock_keyring
@@ -416,7 +416,7 @@ class TestAuthManager:
         self, imap_account: ImapAccountConfig
     ) -> None:
         """delete_password should do nothing when keyring is not available."""
-        from mtk.imap.auth import AuthManager
+        from mail_memex.imap.auth import AuthManager
 
         mgr = AuthManager()
         mgr._keyring = None
@@ -426,7 +426,7 @@ class TestAuthManager:
 
     def test_available_property_true(self) -> None:
         """available should return True when keyring is loaded."""
-        from mtk.imap.auth import AuthManager
+        from mail_memex.imap.auth import AuthManager
 
         mgr = AuthManager()
         mgr._keyring = MagicMock()
@@ -435,7 +435,7 @@ class TestAuthManager:
 
     def test_available_property_false(self) -> None:
         """available should return False when keyring is None."""
-        from mtk.imap.auth import AuthManager
+        from mail_memex.imap.auth import AuthManager
 
         mgr = AuthManager()
         mgr._keyring = None
@@ -448,14 +448,14 @@ class TestGmailOAuth2:
 
     def test_get_access_token_with_refresh_token(self, gmail_account: ImapAccountConfig) -> None:
         """get_access_token should use refresh token to get access token."""
-        from mtk.imap.auth import GmailOAuth2
+        from mail_memex.imap.auth import GmailOAuth2
 
         mock_creds = MagicMock()
         mock_creds.token = "access_token_123"
 
         with (
             patch.object(GmailOAuth2, "__init__", lambda self, account: None),
-            patch("mtk.imap.auth.AuthManager"),
+            patch("mail_memex.imap.auth.AuthManager"),
             patch("google.oauth2.credentials.Credentials", return_value=mock_creds),
             patch("google.auth.transport.requests.Request"),
         ):
@@ -473,7 +473,7 @@ class TestGmailOAuth2:
         self, gmail_account: ImapAccountConfig
     ) -> None:
         """get_access_token should return None if no refresh token is stored."""
-        from mtk.imap.auth import GmailOAuth2
+        from mail_memex.imap.auth import GmailOAuth2
 
         oauth = GmailOAuth2.__new__(GmailOAuth2)
         oauth.account = gmail_account
@@ -486,7 +486,7 @@ class TestGmailOAuth2:
 
     def test_get_access_token_returns_none_on_error(self, gmail_account: ImapAccountConfig) -> None:
         """get_access_token should return None when refresh fails."""
-        from mtk.imap.auth import GmailOAuth2
+        from mail_memex.imap.auth import GmailOAuth2
 
         mock_creds = MagicMock()
         mock_creds.refresh.side_effect = Exception("Network error")
@@ -519,7 +519,7 @@ class TestImapConnection:
 
     def test_ssl_connection_login(self, imap_account: ImapAccountConfig) -> None:
         """Should create SSL connection and use password login for generic account."""
-        from mtk.imap.connection import ImapConnection
+        from mail_memex.imap.connection import ImapConnection
 
         mock_client = MagicMock()
         mock_client.capabilities.return_value = [b"IMAP4rev1"]
@@ -547,7 +547,7 @@ class TestImapConnection:
 
     def test_oauth2_connection_login(self, gmail_account: ImapAccountConfig) -> None:
         """Should use oauth2_login for OAuth2 accounts."""
-        from mtk.imap.connection import ImapConnection
+        from mail_memex.imap.connection import ImapConnection
 
         mock_client = MagicMock()
         mock_client.capabilities.return_value = [b"IMAP4rev1", b"X-GM-EXT-1"]
@@ -569,7 +569,7 @@ class TestImapConnection:
 
     def test_non_ssl_connection(self) -> None:
         """Should create non-SSL connection when use_ssl is False."""
-        from mtk.imap.connection import ImapConnection
+        from mail_memex.imap.connection import ImapConnection
 
         account = ImapAccountConfig(
             name="plaintext",
@@ -597,7 +597,7 @@ class TestImapConnection:
 
     def test_exit_logs_out_and_cleans_up(self, imap_account: ImapAccountConfig) -> None:
         """__exit__ should logout and set client to None."""
-        from mtk.imap.connection import ImapConnection
+        from mail_memex.imap.connection import ImapConnection
 
         mock_client = MagicMock()
         mock_client.capabilities.return_value = [b"IMAP4rev1"]
@@ -619,7 +619,7 @@ class TestImapConnection:
 
     def test_exit_suppresses_logout_errors(self, imap_account: ImapAccountConfig) -> None:
         """__exit__ should suppress errors during logout."""
-        from mtk.imap.connection import ImapConnection
+        from mail_memex.imap.connection import ImapConnection
 
         mock_client = MagicMock()
         mock_client.capabilities.return_value = [b"IMAP4rev1"]
@@ -642,7 +642,7 @@ class TestImapConnection:
 
     def test_retry_on_connection_failure(self, imap_account: ImapAccountConfig) -> None:
         """Should retry connection on failure up to max_retries."""
-        from mtk.imap.connection import ImapConnection
+        from mail_memex.imap.connection import ImapConnection
 
         mock_client_good = MagicMock()
         mock_client_good.capabilities.return_value = [b"IMAP4rev1"]
@@ -673,7 +673,7 @@ class TestImapConnection:
 
     def test_connection_error_after_max_retries(self, imap_account: ImapAccountConfig) -> None:
         """Should raise ConnectionError after exhausting retries."""
-        from mtk.imap.connection import ImapConnection
+        from mail_memex.imap.connection import ImapConnection
 
         mock_cls = MagicMock(side_effect=ConnectionError("Connection refused"))
 
@@ -693,7 +693,7 @@ class TestImapConnection:
 
     def test_imapclient_import_error(self, imap_account: ImapAccountConfig) -> None:
         """Should raise ImportError when imapclient is not installed."""
-        from mtk.imap.connection import ImapConnection
+        from mail_memex.imap.connection import ImapConnection
 
         conn = ImapConnection(imap_account, "password")
 
@@ -705,7 +705,7 @@ class TestImapConnection:
 
     def test_detect_capabilities_condstore(self, imap_account: ImapAccountConfig) -> None:
         """Should detect CONDSTORE capability."""
-        from mtk.imap.connection import ImapConnection
+        from mail_memex.imap.connection import ImapConnection
 
         mock_client = MagicMock()
         mock_client.capabilities.return_value = [b"IMAP4rev1", b"CONDSTORE", b"IDLE"]
@@ -727,7 +727,7 @@ class TestImapConnection:
 
     def test_detect_capabilities_gmail_extensions(self, gmail_account: ImapAccountConfig) -> None:
         """Should detect Gmail extensions in capabilities."""
-        from mtk.imap.connection import ImapConnection
+        from mail_memex.imap.connection import ImapConnection
 
         mock_client = MagicMock()
         mock_client.capabilities.return_value = [b"IMAP4rev1", b"X-GM-EXT-1"]
@@ -747,7 +747,7 @@ class TestImapConnection:
 
     def test_detect_capabilities_compress(self, imap_account: ImapAccountConfig) -> None:
         """Should detect COMPRESS=DEFLATE capability."""
-        from mtk.imap.connection import ImapConnection
+        from mail_memex.imap.connection import ImapConnection
 
         mock_client = MagicMock()
         mock_client.capabilities.return_value = [b"IMAP4rev1", b"COMPRESS=DEFLATE"]
@@ -767,7 +767,7 @@ class TestImapConnection:
 
     def test_context_manager_usage(self, imap_account: ImapAccountConfig) -> None:
         """Should work properly as a context manager."""
-        from mtk.imap.connection import ImapConnection
+        from mail_memex.imap.connection import ImapConnection
 
         mock_client = MagicMock()
         mock_client.capabilities.return_value = [b"IMAP4rev1"]
@@ -796,7 +796,7 @@ class TestServerCapabilities:
 
     def test_defaults(self) -> None:
         """All capabilities should default to False/empty."""
-        from mtk.imap.connection import ServerCapabilities
+        from mail_memex.imap.connection import ServerCapabilities
 
         caps = ServerCapabilities()
         assert caps.condstore is False
@@ -816,7 +816,7 @@ class TestPullResult:
 
     def test_default_values(self) -> None:
         """PullResult should have sensible defaults."""
-        from mtk.imap.pull import PullResult
+        from mail_memex.imap.pull import PullResult
 
         result = PullResult()
         assert result.account == ""
@@ -829,7 +829,7 @@ class TestPullResult:
 
     def test_to_dict(self) -> None:
         """to_dict should return all fields."""
-        from mtk.imap.pull import PullResult
+        from mail_memex.imap.pull import PullResult
 
         result = PullResult(
             account="test",
@@ -857,7 +857,7 @@ class TestPullSync:
         self, imap_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """_get_sync_state should create new state for unknown folder."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_db.session() as session:
             mapper = TagMapper()
@@ -874,7 +874,7 @@ class TestPullSync:
         self, imap_populated_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """_get_sync_state should return existing state for known folder."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_populated_db.session() as session:
             mapper = TagMapper()
@@ -888,7 +888,7 @@ class TestPullSync:
         self, imap_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """_process_message should create a new Email for unknown message_id."""
-        from mtk.imap.pull import PullResult, PullSync
+        from mail_memex.imap.pull import PullResult, PullSync
 
         with imap_db.session() as session:
             mapper = TagMapper()
@@ -930,7 +930,7 @@ class TestPullSync:
         self, imap_populated_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """_process_message should update IMAP tracking for existing email."""
-        from mtk.imap.pull import PullResult, PullSync
+        from mail_memex.imap.pull import PullResult, PullSync
 
         with imap_populated_db.session() as session:
             mapper = TagMapper()
@@ -965,7 +965,7 @@ class TestPullSync:
         self, imap_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """_process_message should generate a message_id if header is missing."""
-        from mtk.imap.pull import PullResult, PullSync
+        from mail_memex.imap.pull import PullResult, PullSync
 
         with imap_db.session() as session:
             mapper = TagMapper()
@@ -999,8 +999,8 @@ class TestPullSync:
     def test_process_message_applies_tags_from_flags(
         self, imap_db: Database, imap_account: ImapAccountConfig
     ) -> None:
-        """_process_message should apply mtk tags based on IMAP flags."""
-        from mtk.imap.pull import PullResult, PullSync
+        """_process_message should apply mail-memex tags based on IMAP flags."""
+        from mail_memex.imap.pull import PullResult, PullSync
 
         with imap_db.session() as session:
             mapper = TagMapper()
@@ -1033,7 +1033,7 @@ class TestPullSync:
         self, imap_populated_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """pull_folder should handle no new messages gracefully."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_populated_db.session() as session:
             mapper = TagMapper()
@@ -1053,7 +1053,7 @@ class TestPullSync:
         self, imap_populated_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """pull_folder should fetch and process new messages."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_populated_db.session() as session:
             mapper = TagMapper()
@@ -1120,7 +1120,7 @@ class TestPullSync:
         self, imap_populated_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """pull_folder should handle UIDVALIDITY change by resetting sync state."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_populated_db.session() as session:
             mapper = TagMapper()
@@ -1161,7 +1161,7 @@ class TestPullSync:
         self, imap_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """pull_folder should handle folder selection errors gracefully."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_db.session() as session:
             mapper = TagMapper()
@@ -1179,7 +1179,7 @@ class TestPullSync:
         self, imap_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """pull_folder should handle search errors gracefully."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_db.session() as session:
             mapper = TagMapper()
@@ -1198,7 +1198,7 @@ class TestPullSync:
         self, imap_populated_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """pull_folder should handle fetch errors for individual batches."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_populated_db.session() as session:
             mapper = TagMapper()
@@ -1219,7 +1219,7 @@ class TestPullSync:
         self, imap_populated_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """pull_folder should handle individual message processing errors."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_populated_db.session() as session:
             mapper = TagMapper()
@@ -1249,7 +1249,7 @@ class TestPullSync:
         self, imap_populated_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """pull_folder should update HIGHESTMODSEQ when server provides it."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_populated_db.session() as session:
             mapper = TagMapper()
@@ -1289,7 +1289,7 @@ class TestPullSync:
         self, imap_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """pull_folder should use 'ALL' search on first sync (no prior state)."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_db.session() as session:
             mapper = TagMapper()
@@ -1334,7 +1334,7 @@ class TestPullSync:
         self, imap_populated_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """pull_folder should use UID range search for incremental sync."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_populated_db.session() as session:
             mapper = TagMapper()
@@ -1353,7 +1353,7 @@ class TestPullSync:
         self, imap_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """_apply_tags should create Tag objects that don't exist yet."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_db.session() as session:
             mapper = TagMapper()
@@ -1385,7 +1385,7 @@ class TestPullSync:
         self, imap_populated_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """_apply_tags should reuse existing Tag objects."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_populated_db.session() as session:
             mapper = TagMapper()
@@ -1417,7 +1417,7 @@ class TestPullSync:
         self, imap_populated_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """_clear_folder_state should clear IMAP tracking for emails in folder."""
-        from mtk.imap.pull import PullSync
+        from mail_memex.imap.pull import PullSync
 
         with imap_populated_db.session() as session:
             mapper = TagMapper()
@@ -1449,7 +1449,7 @@ class TestPullSync:
         self, imap_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """_process_message should set body_preview to first 500 chars of body."""
-        from mtk.imap.pull import PullResult, PullSync
+        from mail_memex.imap.pull import PullResult, PullSync
 
         with imap_db.session() as session:
             mapper = TagMapper()
@@ -1483,7 +1483,7 @@ class TestPullSync:
         self, imap_db: Database, imap_account: ImapAccountConfig
     ) -> None:
         """_process_message should correctly parse In-Reply-To header."""
-        from mtk.imap.pull import PullResult, PullSync
+        from mail_memex.imap.pull import PullResult, PullSync
 
         with imap_db.session() as session:
             mapper = TagMapper()

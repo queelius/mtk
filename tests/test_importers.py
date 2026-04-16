@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from mtk.importers.base import ImportStats
-from mtk.importers.eml import EmlImporter, GmailTakeoutImporter
-from mtk.importers.mbox import MboxImporter
-from mtk.importers.parser import ParsedEmail
+from mail_memex.importers.base import ImportStats
+from mail_memex.importers.eml import EmlImporter, GmailTakeoutImporter
+from mail_memex.importers.mbox import MboxImporter
+from mail_memex.importers.parser import ParsedEmail
 
 
 class TestImportStats:

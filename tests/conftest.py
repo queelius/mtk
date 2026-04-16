@@ -1,4 +1,4 @@
-"""Pytest fixtures and mocks for mtk tests.
+"""Pytest fixtures and mocks for mail-memex tests.
 
 This module provides:
 - Database fixtures (in-memory and file-based)
@@ -19,8 +19,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from sqlalchemy.orm import Session
 
-from mtk.core.database import Database
-from mtk.core.models import (
+from mail_memex.core.database import Database
+from mail_memex.core.models import (
     Attachment,
     Email,
     Tag,
@@ -42,7 +42,7 @@ def tmp_dir() -> Iterator[Path]:
 @pytest.fixture
 def config_dir(tmp_dir: Path) -> Path:
     """Create a mock config directory."""
-    config = tmp_dir / ".config" / "mtk"
+    config = tmp_dir / ".config" / "mail-memex"
     config.mkdir(parents=True)
     return config
 
@@ -50,7 +50,7 @@ def config_dir(tmp_dir: Path) -> Path:
 @pytest.fixture
 def data_dir(tmp_dir: Path) -> Path:
     """Create a mock data directory."""
-    data = tmp_dir / ".local" / "share" / "mtk"
+    data = tmp_dir / ".local" / "share" / "mail-memex"
     data.mkdir(parents=True)
     return data
 
@@ -59,13 +59,13 @@ def data_dir(tmp_dir: Path) -> Path:
 def isolated_mtk_config(config_dir: Path, data_dir: Path) -> Iterator[dict[str, Path]]:
     """Redirect MtkConfig default_config_dir and default_data_dir into tmp_dir.
 
-    Use for CLI tests that would otherwise mutate ~/.config/mtk/config.yaml
-    (e.g., any test that invokes `mtk init` — init calls config.save() which
+    Use for CLI tests that would otherwise mutate ~/.config/mail-memex/config.yaml
+    (e.g., any test that invokes `mail-memex init` — init calls config.save() which
     writes to the global config path).
 
     Yields a dict with 'config_dir' and 'data_dir' paths for assertions.
     """
-    from mtk.core.config import MtkConfig
+    from mail_memex.core.config import MtkConfig
 
     with patch.object(MtkConfig, "default_config_dir", classmethod(lambda cls: config_dir)):
         with patch.object(MtkConfig, "default_data_dir", classmethod(lambda cls: data_dir)):
@@ -426,11 +426,11 @@ def populated_db(db: Database) -> Database:
 @pytest.fixture
 def mock_config(tmp_dir: Path):
     """Mock MtkConfig to use temporary directories."""
-    with patch("mtk.core.config.MtkConfig") as mock_config_cls:
+    with patch("mail_memex.core.config.MtkConfig") as mock_config_cls:
         config = MagicMock()
-        config.default_config_dir.return_value = tmp_dir / ".config" / "mtk"
-        config.default_data_dir.return_value = tmp_dir / ".local" / "share" / "mtk"
-        config.db_path = tmp_dir / ".local" / "share" / "mtk" / "mtk.db"
+        config.default_config_dir.return_value = tmp_dir / ".config" / "mail-memex"
+        config.default_data_dir.return_value = tmp_dir / ".local" / "share" / "mail-memex"
+        config.db_path = tmp_dir / ".local" / "share" / "mail-memex" / "mail-memex.db"
         mock_config_cls.load.return_value = config
         mock_config_cls.return_value = config
         yield config

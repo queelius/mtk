@@ -16,10 +16,10 @@ from datetime import datetime
 import pytest
 from sqlalchemy import text
 
-from mtk.core.database import Database
-from mtk.core.models import Email
-from mtk.search.engine import SearchEngine
-from mtk.search.fts import (
+from mail_memex.core.database import Database
+from mail_memex.core.models import Email
+from mail_memex.search.engine import SearchEngine
+from mail_memex.search.fts import (
     fts5_available,
     fts5_search,
     fts_stats,

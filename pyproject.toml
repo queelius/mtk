@@ -3,16 +3,16 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "mtk"
-version = "0.4.0"
-description = "Mail Toolkit - Personal email archive management with full-text search and SQL/MCP access"
+name = "mail-memex"
+version = "0.5.0"
+description = "Mail Memex - Personal email archive with full-text search and SQL/MCP access"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [
-    { name = "spinoza" }
+    { name = "Alex Towell", email = "lex@metafunctor.com" }
 ]
-keywords = ["email", "mail", "archive", "search", "imap"]
+keywords = ["email", "mail", "archive", "search", "imap", "memex"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -50,14 +50,14 @@ dev = [
     "ruff>=0.1.0",
 ]
 all = [
-    "mtk[mcp,imap,dev]",
+    "mail-memex[mcp,imap,dev]",
 ]
 
 [project.scripts]
-mtk = "mtk.cli.main:app"
+mail-memex = "mail_memex.cli.main:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mtk"]
+packages = ["src/mail_memex"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -65,7 +65,7 @@ pythonpath = ["src"]
 addopts = "-v --tb=short"
 
 [tool.coverage.run]
-source = ["src/mtk"]
+source = ["src/mail_memex"]
 branch = true
 
 [tool.coverage.report]

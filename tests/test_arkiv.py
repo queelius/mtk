@@ -6,9 +6,9 @@ from pathlib import Path
 import yaml
 from sqlalchemy import select
 
-from mtk.core.database import Database
-from mtk.core.models import Email
-from mtk.export.arkiv_export import ArkivExporter
+from mail_memex.core.database import Database
+from mail_memex.core.models import Email
+from mail_memex.export.arkiv_export import ArkivExporter
 
 
 class TestArkivExporter:
@@ -43,7 +43,7 @@ class TestArkivExporter:
         assert "timestamp" in record
         assert "metadata" in record
         assert "uri" in record
-        assert record["uri"].startswith("mtk://email/")
+        assert record["uri"].startswith("mail-memex://email/")
 
     def test_metadata_has_required_fields(self, populated_db: Database, tmp_path: Path) -> None:
         output = tmp_path / "emails.jsonl"
@@ -241,7 +241,7 @@ class TestArkivExporter:
         for line in output.read_text().strip().split("\n"):
             record = json.loads(line)
             msg_id = record["metadata"]["message_id"]
-            assert record["uri"] == f"mtk://email/{msg_id}"
+            assert record["uri"] == f"mail-memex://email/{msg_id}"
 
     def test_from_name_in_metadata(self, populated_db: Database, tmp_path: Path) -> None:
         """Emails with from_name should include it in metadata."""

@@ -14,8 +14,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from mtk.core.database import Database, close_db, get_db, init_db
-from mtk.core.models import (
+from mail_memex.core.database import Database, close_db, get_db, init_db
+from mail_memex.core.models import (
     Attachment,
     Email,
     Tag,

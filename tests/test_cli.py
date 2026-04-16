@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-from mtk.cli.main import app
+from mail_memex.cli.main import app
 
 runner = CliRunner()
 
@@ -24,7 +24,7 @@ class TestCLIHelp:
         """CLI should display help."""
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "mtk" in result.output.lower() or "mail toolkit" in result.output.lower()
+        assert "mail-memex" in result.output.lower() or "mail memex" in result.output.lower()
 
     def test_version_flag(self) -> None:
         """CLI should display version."""
@@ -119,7 +119,7 @@ class TestImportMetadata:
         runner.invoke(app, ["init", "--db", str(db_path)])
 
         # Point the CLI at this test DB via a patched config loader
-        from mtk.core.config import MtkConfig
+        from mail_memex.core.config import MtkConfig
 
         def _load_with_db(*args, **kwargs):
             cfg = MtkConfig()
@@ -156,7 +156,7 @@ class TestSearchCommand:
 
     def test_search_without_db_fails(self) -> None:
         """search without initialized db should fail gracefully."""
-        with patch("mtk.cli.main.get_db") as mock_get_db:
+        with patch("mail_memex.cli.main.get_db") as mock_get_db:
             mock_get_db.side_effect = RuntimeError("Database not initialized")
 
             result = runner.invoke(app, ["search", "test"])
@@ -205,8 +205,8 @@ class TestTagCommand:
 
     def test_tag_add_email_not_found(self) -> None:
         """tag add should fail gracefully when email not found."""
-        with patch("mtk.cli.main.get_db") as mock_get_db:
-            from mtk.core.database import Database
+        with patch("mail_memex.cli.main.get_db") as mock_get_db:
+            from mail_memex.core.database import Database
 
             db = Database(":memory:")
             db.create_tables()
@@ -219,8 +219,8 @@ class TestTagCommand:
         """tag add --json should output error JSON when email not found."""
         import json
 
-        with patch("mtk.cli.main.get_db") as mock_get_db:
-            from mtk.core.database import Database
+        with patch("mail_memex.cli.main.get_db") as mock_get_db:
+            from mail_memex.core.database import Database
 
             db = Database(":memory:")
             db.create_tables()
@@ -235,9 +235,9 @@ class TestTagCommand:
         """tag add should add tags to an email."""
         import json
 
-        with patch("mtk.cli.main.get_db") as mock_get_db:
-            from mtk.core.database import Database
-            from mtk.core.models import Email
+        with patch("mail_memex.cli.main.get_db") as mock_get_db:
+            from mail_memex.core.database import Database
+            from mail_memex.core.models import Email
 
             db = Database(":memory:")
             db.create_tables()
@@ -270,8 +270,8 @@ class TestTagCommand:
 
     def test_tag_remove_email_not_found(self) -> None:
         """tag remove should fail gracefully when email not found."""
-        with patch("mtk.cli.main.get_db") as mock_get_db:
-            from mtk.core.database import Database
+        with patch("mail_memex.cli.main.get_db") as mock_get_db:
+            from mail_memex.core.database import Database
 
             db = Database(":memory:")
             db.create_tables()
@@ -284,9 +284,9 @@ class TestTagCommand:
         """tag remove should remove tags from an email."""
         import json
 
-        with patch("mtk.cli.main.get_db") as mock_get_db:
-            from mtk.core.database import Database
-            from mtk.core.models import Email, Tag
+        with patch("mail_memex.cli.main.get_db") as mock_get_db:
+            from mail_memex.core.database import Database
+            from mail_memex.core.models import Email, Tag
 
             db = Database(":memory:")
             db.create_tables()
@@ -312,8 +312,8 @@ class TestTagCommand:
 
     def test_tag_list_empty(self) -> None:
         """tag list should handle empty tag list."""
-        with patch("mtk.cli.main.get_db") as mock_get_db:
-            from mtk.core.database import Database
+        with patch("mail_memex.cli.main.get_db") as mock_get_db:
+            from mail_memex.core.database import Database
 
             db = Database(":memory:")
             db.create_tables()
@@ -326,9 +326,9 @@ class TestTagCommand:
         """tag list --json should output JSON array of tags with counts."""
         import json
 
-        with patch("mtk.cli.main.get_db") as mock_get_db:
-            from mtk.core.database import Database
-            from mtk.core.models import Email, Tag
+        with patch("mail_memex.cli.main.get_db") as mock_get_db:
+            from mail_memex.core.database import Database
+            from mail_memex.core.models import Email, Tag
 
             db = Database(":memory:")
             db.create_tables()
@@ -361,8 +361,8 @@ class TestTagCommand:
         """tag batch should handle no matching emails."""
         import json
 
-        with patch("mtk.cli.main.get_db") as mock_get_db:
-            from mtk.core.database import Database
+        with patch("mail_memex.cli.main.get_db") as mock_get_db:
+            from mail_memex.core.database import Database
 
             db = Database(":memory:")
             db.create_tables()

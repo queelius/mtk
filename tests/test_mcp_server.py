@@ -10,8 +10,8 @@ import json
 import os
 from unittest.mock import patch
 
-from mtk.core.database import Database
-from mtk.mcp.server import create_server, get_schema, run_sql
+from mail_memex.core.database import Database
+from mail_memex.mcp.server import create_server, get_schema, run_sql
 
 # =============================================================================
 # TestRunSql
@@ -176,8 +176,8 @@ class TestCreateServer:
 
     def test_creates_server(self, tmp_path) -> None:
         db_path = tmp_path / "test.db"
-        with patch.dict(os.environ, {"MTK_DATABASE_PATH": str(db_path)}):
+        with patch.dict(os.environ, {"MAIL_MEMEX_DATABASE_PATH": str(db_path)}):
             server = create_server()
         assert server is not None
         # The Server class has a 'name' attribute
-        assert server.name == "mtk"
+        assert server.name == "mail-memex"

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from mtk.importers.parser import EmailParser, ParsedEmail
+from mail_memex.importers.parser import EmailParser, ParsedEmail
 
 
 class TestEmailParserBasics:
@@ -178,7 +178,7 @@ Body text.
 
         assert result.message_id is not None
         assert result.message_id.startswith("generated-")
-        assert "@mtk.local" in result.message_id
+        assert "@mail-memex.local" in result.message_id
 
     def test_strip_angle_brackets_from_message_id(self) -> None:
         """Should remove angle brackets from Message-ID."""

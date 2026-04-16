@@ -1,1 +1,1 @@
-"""Tests for mtk."""
+"""Tests for mail-memex."""

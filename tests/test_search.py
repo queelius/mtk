@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from mtk.search.engine import SearchEngine
+from mail_memex.search.engine import SearchEngine
 
 
 class TestSearchQuery:

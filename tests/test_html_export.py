@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from mtk.core.database import Database
-from mtk.core.models import Email, Tag, Thread
-from mtk.export.html_export import HtmlExporter
+from mail_memex.core.database import Database
+from mail_memex.core.models import Email, Tag, Thread
+from mail_memex.export.html_export import HtmlExporter
 
 
 @pytest.fixture
