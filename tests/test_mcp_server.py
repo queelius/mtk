@@ -10,16 +10,13 @@ import os
 from datetime import datetime
 from unittest.mock import patch
 
-from mail_memex.core.database import Database
-from mail_memex.core.models import Email, Thread
-
-
 # =============================================================================
 # Fixture
 # =============================================================================
-
-
 import pytest
+
+from mail_memex.core.database import Database
+from mail_memex.core.models import Email, Thread
 
 
 @pytest.fixture

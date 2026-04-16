@@ -25,7 +25,6 @@ from sqlalchemy.orm import Session
 
 from mail_memex.core.models import Marginalia, MarginaliaTarget
 
-
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

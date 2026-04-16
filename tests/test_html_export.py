@@ -6,7 +6,6 @@ import base64
 import re
 from pathlib import Path
 
-import pytest
 from sqlalchemy import select
 
 from mail_memex.core.database import Database
@@ -119,8 +118,8 @@ class TestHtmlExporter:
         assert match is not None
         db_bytes = base64.b64decode(match.group(1))
 
-        import tempfile
         import os
+        import tempfile
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as f:
             f.write(db_bytes)
@@ -143,9 +142,9 @@ class TestHtmlExporter:
 
     def test_export_includes_fts5_index(self, populated_db: Database, tmp_dir: Path) -> None:
         """The export DB should contain an FTS5 index."""
+        import os
         import sqlite3
         import tempfile
-        import os
 
         output = tmp_dir / "archive.html"
         with populated_db.session() as session:
@@ -183,9 +182,9 @@ class TestHtmlBuilder:
         assert db_bytes[:16].startswith(b"SQLite format 3")
 
     def test_build_export_db_has_correct_email_count(self, populated_db: Database) -> None:
+        import os
         import sqlite3
         import tempfile
-        import os
 
         from mail_memex.export.html_builder import build_export_db
 
@@ -206,9 +205,9 @@ class TestHtmlBuilder:
             os.unlink(tmp_db)
 
     def test_build_export_db_has_threads(self, populated_db: Database) -> None:
+        import os
         import sqlite3
         import tempfile
-        import os
 
         from mail_memex.export.html_builder import build_export_db
 

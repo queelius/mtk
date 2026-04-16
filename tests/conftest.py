@@ -67,9 +67,11 @@ def isolated_mtk_config(config_dir: Path, data_dir: Path) -> Iterator[dict[str, 
     """
     from mail_memex.core.config import MtkConfig
 
-    with patch.object(MtkConfig, "default_config_dir", classmethod(lambda cls: config_dir)):
-        with patch.object(MtkConfig, "default_data_dir", classmethod(lambda cls: data_dir)):
-            yield {"config_dir": config_dir, "data_dir": data_dir}
+    with (
+        patch.object(MtkConfig, "default_config_dir", classmethod(lambda cls: config_dir)),
+        patch.object(MtkConfig, "default_data_dir", classmethod(lambda cls: data_dir)),
+    ):
+        yield {"config_dir": config_dir, "data_dir": data_dir}
 
 
 # =============================================================================

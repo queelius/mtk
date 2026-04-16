@@ -173,11 +173,11 @@ def get_record_impl(session: Any, kind: str, record_id: str) -> str:
     kind="marginalia": lookup Marginalia by uuid.
     Returns archived (soft-deleted) records too.
     """
-    _VALID_KINDS = ("email", "thread", "marginalia")
+    valid_kinds = ("email", "thread", "marginalia")
 
-    if kind not in _VALID_KINDS:
+    if kind not in valid_kinds:
         return json.dumps(
-            {"error": f"Unknown kind: {kind}. Valid: {', '.join(_VALID_KINDS)}"}
+            {"error": f"Unknown kind: {kind}. Valid: {', '.join(valid_kinds)}"}
         )
 
     if kind == "email":
