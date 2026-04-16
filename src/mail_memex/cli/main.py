@@ -776,14 +776,17 @@ def export_markdown(
 @export_app.command("html")
 def export_html(
     output: Path = typer.Argument(..., help="Output HTML file path"),
+    query: str | None = typer.Option(None, "--query", "-q", help="Search query to filter"),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
     """Export email archive as a self-contained HTML application."""
     from mail_memex.export.html_export import HtmlExporter
 
     db = get_db()
-    exporter = HtmlExporter(output, db.db_path)
-    result = exporter.export_from_db()
+    with db.session() as session:
+        emails = _prepare_export(session, query)
+        exporter = HtmlExporter(output)
+        result = exporter.export(emails)
 
     if json_output:
         print(json_lib.dumps(result.to_dict(), indent=2))
