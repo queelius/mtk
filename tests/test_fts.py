@@ -289,6 +289,115 @@ class TestFts5TriggerSync:
                 "archived_at update caused FTS re-insert (trigger not column-scoped)"
             )
 
+    def test_fts5_search_excludes_archived_by_default(self, fts_db: Database) -> None:
+        """Regression: archived emails stay in the FTS index (scoped trigger
+        doesn't evict them on archived_at set), but fts5_search joins
+        against emails and filters archived_at IS NULL at query time.
+        Candidate pool therefore never includes archived rows."""
+        from mail_memex.search.fts import fts5_search
+
+        with fts_db.session() as session:
+            live = Email(
+                message_id="live-fts@example.com",
+                from_addr="a@x.com",
+                subject="UNIQMARKER test subject",
+                body_text="body",
+                date=datetime(2024, 1, 1),
+            )
+            archived = Email(
+                message_id="gone-fts@example.com",
+                from_addr="a@x.com",
+                subject="UNIQMARKER test subject",
+                body_text="body",
+                date=datetime(2024, 1, 2),
+            )
+            session.add_all([live, archived])
+            session.commit()
+            archived.archived_at = datetime(2024, 2, 1)
+            session.commit()
+
+            results = fts5_search(session, "UNIQMARKER")
+            email_ids = {r["email_id"] for r in results}
+            assert live.id in email_ids
+            assert archived.id not in email_ids
+
+    def test_fts5_search_include_archived_returns_archived(
+        self, fts_db: Database
+    ) -> None:
+        """With include_archived=True the FTS filter is dropped and
+        archived rows are returned — needed for export --include-archived
+        with a text query."""
+        from mail_memex.search.fts import fts5_search
+
+        with fts_db.session() as session:
+            live = Email(
+                message_id="live2-fts@example.com",
+                from_addr="a@x.com",
+                subject="FULLMIRROR subject",
+                body_text="",
+                date=datetime(2024, 1, 1),
+            )
+            archived = Email(
+                message_id="gone2-fts@example.com",
+                from_addr="a@x.com",
+                subject="FULLMIRROR subject",
+                body_text="",
+                date=datetime(2024, 1, 2),
+            )
+            session.add_all([live, archived])
+            session.commit()
+            archived.archived_at = datetime(2024, 2, 1)
+            session.commit()
+
+            results = fts5_search(session, "FULLMIRROR", include_archived=True)
+            email_ids = {r["email_id"] for r in results}
+            assert {live.id, archived.id}.issubset(email_ids)
+
+    def test_fts5_search_limit_is_exact_with_many_archived(
+        self, fts_db: Database
+    ) -> None:
+        """Regression: when the archived-row ratio is high, the old behavior
+        leaked archived rows into the candidate pool and relied on the
+        caller to post-filter, which meant LIMIT=5 could return 1 live row
+        if 4 slots went to archived rows. With the FTS-level filter,
+        LIMIT=5 returns 5 live rows when at least 5 live matches exist."""
+        from mail_memex.search.fts import fts5_search
+
+        with fts_db.session() as session:
+            for i in range(10):
+                session.add(
+                    Email(
+                        message_id=f"archived-bulk-{i}@example.com",
+                        from_addr="a@x.com",
+                        subject="HIGHCARD topic",
+                        body_text="",
+                        date=datetime(2024, 1, 1),
+                        archived_at=datetime(2024, 2, 1),
+                    )
+                )
+            live_ids: list[int] = []
+            for i in range(5):
+                e = Email(
+                    message_id=f"live-bulk-{i}@example.com",
+                    from_addr="a@x.com",
+                    subject="HIGHCARD topic",
+                    body_text="",
+                    date=datetime(2024, 1, 1),
+                )
+                session.add(e)
+                session.flush()
+                live_ids.append(e.id)
+            session.commit()
+
+            results = fts5_search(session, "HIGHCARD", limit=5)
+            returned = {r["email_id"] for r in results}
+            assert len(returned) == 5, (
+                f"Expected 5 live results (filter at FTS level), got {len(returned)}"
+            )
+            assert returned.issubset(set(live_ids)), (
+                "Archived rows leaked into LIMIT-5 FTS result pool"
+            )
+
     def test_setup_migrates_old_unscoped_trigger(self, fts_db: Database) -> None:
         """Databases that already have the old (unscoped) UPDATE trigger must
         have it replaced by the new (column-scoped) version when setup_fts5

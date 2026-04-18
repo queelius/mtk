@@ -267,9 +267,16 @@ class SearchEngine:
         if not fts_query:
             return self._like_search(query, limit, offset, "date", include_archived)
 
-        # Get FTS5 candidates; post-filter in SQLAlchemy below so archived
-        # rows (and field-filter mismatches) are dropped before scoring.
-        fts_results = fts5_search(self.session, fts_query, limit=limit * 3, offset=0)
+        # FTS5 filters archived at the SQL level, so the candidate pool
+        # is pure live rows. Overfetch by 3x only for field-filter misses
+        # (from/to/subject) that are applied in Python below.
+        fts_results = fts5_search(
+            self.session,
+            fts_query,
+            limit=limit * 3,
+            offset=0,
+            include_archived=include_archived,
+        )
         if not fts_results:
             return self._like_search(query, limit, offset, "relevance", include_archived)
 

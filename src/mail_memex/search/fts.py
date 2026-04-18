@@ -206,14 +206,23 @@ def fts5_search(
     *,
     limit: int = 50,
     offset: int = 0,
+    include_archived: bool = False,
 ) -> list[dict[str, Any]]:
     """Execute an FTS5 search with BM25 ranking and snippet extraction.
+
+    Filters soft-deleted rows at the FTS query layer by joining against
+    the emails table. Without the join, archived-but-indexed rows would
+    occupy candidate slots and be dropped in post-processing — wasting
+    LIMIT budget when the archived ratio is high, so callers would have
+    to overfetch by an unknown factor. Putting the filter in the SQL
+    means LIMIT is exact.
 
     Args:
         session: SQLAlchemy session.
         query_text: Prepared FTS5 query (output of prepare_fts_query).
         limit: Maximum results.
         offset: Number of results to skip.
+        include_archived: If True, soft-deleted emails are included.
 
     Returns:
         List of dicts with keys: email_id, rank, snippet_subject,
@@ -224,15 +233,21 @@ def fts5_search(
 
     # BM25 returns negative scores (lower = better match).
     # snippet() extracts context around matches.
+    where_clauses = ["emails_fts MATCH :query"]
+    if not include_archived:
+        where_clauses.append("emails.archived_at IS NULL")
+    where_sql = " AND ".join(where_clauses)
+
     sql = text(
         "SELECT "
-        "  email_id, "
+        "  emails_fts.email_id, "
         f"  bm25(emails_fts, {_BM25_WEIGHTS}) AS rank, "
         "  snippet(emails_fts, 1, '<b>', '</b>', '...', 32) AS snippet_subject, "
         "  snippet(emails_fts, 2, '<b>', '</b>', '...', 64) AS snippet_body, "
         "  snippet(emails_fts, 3, '<b>', '</b>', '...', 16) AS snippet_from "
         "FROM emails_fts "
-        "WHERE emails_fts MATCH :query "
+        "JOIN emails ON emails.id = emails_fts.email_id "
+        f"WHERE {where_sql} "
         "ORDER BY rank "
         "LIMIT :limit OFFSET :offset"
     )
@@ -245,19 +260,16 @@ def fts5_search(
         # Query syntax error or other FTS5 issue — return empty
         return []
 
-    results = []
-    for row in rows:
-        results.append(
-            {
-                "email_id": row[0],
-                "rank": row[1],
-                "snippet_subject": row[2],
-                "snippet_body": row[3],
-                "snippet_from": row[4],
-            }
-        )
-
-    return results
+    return [
+        {
+            "email_id": row[0],
+            "rank": row[1],
+            "snippet_subject": row[2],
+            "snippet_body": row[3],
+            "snippet_from": row[4],
+        }
+        for row in rows
+    ]
 
 
 def rebuild_fts_index(engine: Engine) -> int:
