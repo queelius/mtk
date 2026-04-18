@@ -275,13 +275,16 @@ class TestGetSchema:
 
 
 class TestGetRecord:
-    """Tests for get_record_impl."""
+    """Tests for get_record_impl — now takes a mail-memex:// URI per the
+    federation contract (see meta-memex/docs/uri-scheme.md)."""
 
-    def test_email_by_message_id(self, mcp_db: Database) -> None:
+    def test_email_by_uri(self, mcp_db: Database) -> None:
         from mail_memex.mcp.server import get_record_impl
 
         with mcp_db.session() as session:
-            result = json.loads(get_record_impl(session, "email", "mcp-test@example.com"))
+            result = json.loads(
+                get_record_impl(session, "mail-memex://email/mcp-test@example.com")
+            )
             assert result["message_id"] == "mcp-test@example.com"
             assert result["from_addr"] == "alice@example.com"
             assert result["from_name"] == "Alice"
@@ -289,11 +292,13 @@ class TestGetRecord:
             assert result["to_addrs"] == "bob@example.com"
             assert result["thread_id"] == "thread-mcp-test"
 
-    def test_thread_by_thread_id(self, mcp_db: Database) -> None:
+    def test_thread_by_uri(self, mcp_db: Database) -> None:
         from mail_memex.mcp.server import get_record_impl
 
         with mcp_db.session() as session:
-            result = json.loads(get_record_impl(session, "thread", "thread-mcp-test"))
+            result = json.loads(
+                get_record_impl(session, "mail-memex://thread/thread-mcp-test")
+            )
             assert result["thread_id"] == "thread-mcp-test"
             assert result["subject"] == "MCP Thread"
             assert result["email_count"] == 1
@@ -302,21 +307,25 @@ class TestGetRecord:
         from mail_memex.mcp.server import get_record_impl
 
         with mcp_db.session() as session:
-            result = json.loads(get_record_impl(session, "email", "nonexistent@example.com"))
+            result = json.loads(
+                get_record_impl(session, "mail-memex://email/nonexistent@example.com")
+            )
             assert result == {"error": "NOT_FOUND"}
 
     def test_thread_not_found(self, mcp_db: Database) -> None:
         from mail_memex.mcp.server import get_record_impl
 
         with mcp_db.session() as session:
-            result = json.loads(get_record_impl(session, "thread", "no-such-thread"))
+            result = json.loads(
+                get_record_impl(session, "mail-memex://thread/no-such-thread")
+            )
             assert result == {"error": "NOT_FOUND"}
 
-    def test_invalid_kind(self, mcp_db: Database) -> None:
+    def test_unknown_kind(self, mcp_db: Database) -> None:
         from mail_memex.mcp.server import get_record_impl
 
         with mcp_db.session() as session:
-            result = json.loads(get_record_impl(session, "widget", "abc"))
+            result = json.loads(get_record_impl(session, "mail-memex://widget/abc"))
             assert "error" in result
             assert "Unknown kind" in result["error"]
             assert "widget" in result["error"]
@@ -326,17 +335,18 @@ class TestGetRecord:
         from mail_memex.mcp.server import get_record_impl
 
         with mcp_db.session() as session:
-            # soft-delete the email
             email = session.query(Email).filter_by(message_id="mcp-test@example.com").one()
             email.archived_at = datetime(2024, 7, 1)
             session.commit()
 
         with mcp_db.session() as session:
-            result = json.loads(get_record_impl(session, "email", "mcp-test@example.com"))
+            result = json.loads(
+                get_record_impl(session, "mail-memex://email/mcp-test@example.com")
+            )
             assert result["message_id"] == "mcp-test@example.com"
             assert result["archived_at"] is not None
 
-    def test_marginalia_kind(self, mcp_db: Database) -> None:
+    def test_marginalia_by_uri(self, mcp_db: Database) -> None:
         """get_record with kind=marginalia delegates to marginalia module."""
         from mail_memex.core.marginalia import create_marginalia
         from mail_memex.mcp.server import get_record_impl
@@ -351,7 +361,9 @@ class TestGetRecord:
             uuid = created["uuid"]
 
         with mcp_db.session() as session:
-            result = json.loads(get_record_impl(session, "marginalia", uuid))
+            result = json.loads(
+                get_record_impl(session, f"mail-memex://marginalia/{uuid}")
+            )
             assert result["uuid"] == uuid
             assert result["content"] == "A note"
 
@@ -359,8 +371,73 @@ class TestGetRecord:
         from mail_memex.mcp.server import get_record_impl
 
         with mcp_db.session() as session:
-            result = json.loads(get_record_impl(session, "marginalia", "0" * 32))
+            result = json.loads(
+                get_record_impl(session, f"mail-memex://marginalia/{'0' * 32}")
+            )
             assert result == {"error": "NOT_FOUND"}
+
+    def test_fragment_is_stripped_for_lookup(self, mcp_db: Database) -> None:
+        """Position fragments address positions within a record, not separate
+        records. The underlying email must resolve regardless of fragment."""
+        from mail_memex.mcp.server import get_record_impl
+
+        with mcp_db.session() as session:
+            result = json.loads(
+                get_record_impl(
+                    session, "mail-memex://email/mcp-test@example.com#part=2"
+                )
+            )
+            assert result["message_id"] == "mcp-test@example.com"
+
+    def test_non_mail_memex_scheme_rejected(self, mcp_db: Database) -> None:
+        """URIs from other archives (llm-memex://, book-memex://) must be
+        rejected — federation-layer code is responsible for routing them."""
+        from mail_memex.mcp.server import get_record_impl
+
+        with mcp_db.session() as session:
+            result = json.loads(
+                get_record_impl(session, "llm-memex://conversation/abc")
+            )
+            assert "error" in result
+            assert "mail-memex://" in result["error"]
+
+    def test_malformed_uri_rejected(self, mcp_db: Database) -> None:
+        from mail_memex.mcp.server import get_record_impl
+
+        with mcp_db.session() as session:
+            for bad in (
+                "mail-memex://",  # no kind or id
+                "mail-memex://email",  # no id
+                "mail-memex:///abc",  # empty kind
+                "not a uri",
+                "",
+            ):
+                result = json.loads(get_record_impl(session, bad))
+                assert "error" in result, f"{bad!r} should be rejected"
+
+    def test_id_containing_slash_preserved(self, mcp_db: Database) -> None:
+        """Message-IDs can technically contain '/' — the id portion of the
+        URI is everything after the first '/', including further slashes."""
+        from mail_memex.core.models import Email
+        from mail_memex.mcp.server import get_record_impl
+
+        with mcp_db.session() as session:
+            session.add(
+                Email(
+                    message_id="weird/slash@example.com",
+                    from_addr="x@example.com",
+                    subject="s",
+                    body_text="",
+                    date=datetime(2024, 1, 1),
+                )
+            )
+            session.commit()
+
+        with mcp_db.session() as session:
+            result = json.loads(
+                get_record_impl(session, "mail-memex://email/weird/slash@example.com")
+            )
+            assert result["message_id"] == "weird/slash@example.com"
 
 
 # =============================================================================

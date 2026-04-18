@@ -203,16 +203,62 @@ def execute_sql_impl(session: Any, sql: str, readonly: bool = True) -> str:
         raw.set_authorizer(None)
 
 
-def get_record_impl(session: Any, kind: str, record_id: str) -> str:
-    """Resolve a mail-memex record by kind and ID.
+_URI_SCHEME = "mail-memex"
 
-    kind="email": lookup Email by message_id.
-    kind="thread": lookup Thread by thread_id.
-    kind="marginalia": lookup Marginalia by uuid.
-    Returns archived (soft-deleted) records too.
+
+def _parse_uri(uri: str) -> tuple[str, str]:
+    """Parse a mail-memex://<kind>/<id>[#fragment] URI into (kind, id).
+
+    Fragments are stripped — they address positions within a record
+    (e.g. '#part=2', '#msg-45-67') and are opaque to the resolution
+    layer per the *-memex URI scheme (see meta-memex/docs/uri-scheme.md).
+
+    Raises ValueError for malformed input or a non-mail-memex scheme.
+    """
+    sep = "://"
+    idx = uri.find(sep)
+    if idx < 0 or uri[:idx] != _URI_SCHEME:
+        raise ValueError(
+            f"URI must begin with '{_URI_SCHEME}://'; got: {uri!r}"
+        )
+    rest = uri[idx + len(sep):]
+    frag = rest.find("#")
+    if frag >= 0:
+        rest = rest[:frag]
+    slash = rest.find("/")
+    if slash < 0:
+        raise ValueError(f"URI missing '/<id>' portion: {uri!r}")
+    kind = rest[:slash]
+    record_id = rest[slash + 1:]
+    if not kind or not record_id:
+        raise ValueError(
+            f"URI must be {_URI_SCHEME}://<kind>/<id>; got: {uri!r}"
+        )
+    return kind, record_id
+
+
+def get_record_impl(session: Any, uri: str) -> str:
+    """Resolve a mail-memex:// URI and return the record as JSON.
+
+    Accepted URIs:
+      mail-memex://email/<message_id>
+      mail-memex://thread/<thread_id>
+      mail-memex://marginalia/<uuid>
+
+    Position fragments (e.g. '#part=2') are stripped before lookup —
+    the underlying record is returned regardless of the fragment, since
+    fragments address positions within a record, not separate records.
+
+    Returns archived (soft-deleted) records too, so cross-archive
+    references (trails, marginalia) stay resolvable after soft-deletion.
     """
     from mail_memex.core.marginalia import get_marginalia
     from mail_memex.core.models import Email, Thread
+
+    try:
+        kind, record_id = _parse_uri(uri)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
 
     def _iso(dt: Any) -> Any:
         return dt.isoformat() if dt else None
@@ -347,14 +393,16 @@ def create_server() -> FastMCP:
     @mcp.tool(
         name="get_record",
         description=(
-            "Resolve a mail-memex record by kind and ID. "
-            "kind: 'email' (by message_id), 'thread' (by thread_id), 'marginalia' (by uuid). "
-            "Returns the record as JSON, including soft-deleted records."
+            "Resolve a mail-memex:// URI to its record as JSON. Accepts "
+            "mail-memex://email/<message_id>, mail-memex://thread/<thread_id>, "
+            "and mail-memex://marginalia/<uuid>. Position fragments (e.g. "
+            "'#part=2') are ignored for lookup. Returns soft-deleted records "
+            "too so cross-archive references stay resolvable."
         ),
     )
-    def get_record_tool(kind: str, record_id: str) -> str:
+    def get_record_tool(uri: str) -> str:
         with db.session() as session:
-            return get_record_impl(session, kind, record_id)
+            return get_record_impl(session, uri)
 
     # ----- Domain tools -----
 
