@@ -20,6 +20,10 @@ pytest
 # Run specific test file
 pytest tests/test_search.py
 
+# Run a single test by node ID
+pytest tests/test_search.py::test_search_from_operator
+pytest tests/test_marginalia.py -k "orphan_survival"
+
 # Run with coverage
 pytest --cov=src/mail_memex --cov-report=term-missing
 
