@@ -746,8 +746,16 @@ export_app = typer.Typer(help="Export emails to various formats")
 app.add_typer(export_app, name="export")
 
 
-def _prepare_export(session, query: str | None) -> list:
-    """Fetch emails for export, optionally filtered by a search query."""
+def _prepare_export(
+    session, query: str | None, *, include_archived: bool = False
+) -> list:
+    """Fetch emails for export, optionally filtered by a search query.
+
+    Soft-deleted emails are excluded by default — consistent with the
+    workspace convention that archived records are resolvable by URI but
+    hidden from default enumeration. Pass include_archived=True to
+    produce a full mirror.
+    """
     from sqlalchemy import select
 
     from mail_memex.core.models import Email
@@ -755,17 +763,32 @@ def _prepare_export(session, query: str | None) -> list:
 
     if query:
         engine = SearchEngine(session)
-        return [r.email for r in engine.search(query, limit=100000)]
+        return [
+            r.email
+            for r in engine.search(
+                query, limit=100000, include_archived=include_archived
+            )
+        ]
 
-    return list(session.execute(select(Email)).scalars())
+    stmt = select(Email)
+    if not include_archived:
+        stmt = stmt.where(Email.archived_at.is_(None))
+    return list(session.execute(stmt).scalars())
 
 
-def _run_export(exporter_factory, query: str | None):
+def _run_export(exporter_factory, query: str | None, *, include_archived: bool = False):
     """Open a session, fetch emails, run the exporter, return the result."""
     db = get_db()
     with db.session() as session:
-        emails = _prepare_export(session, query)
+        emails = _prepare_export(session, query, include_archived=include_archived)
         return exporter_factory().export(emails)
+
+
+_INCLUDE_ARCHIVED_OPT = typer.Option(
+    False,
+    "--include-archived",
+    help="Include soft-deleted emails in the export (default: excluded).",
+)
 
 
 @export_app.command("json")
@@ -773,12 +796,17 @@ def export_json(
     output: Path = typer.Argument(..., help="Output file path"),
     query: str | None = typer.Option(None, "--query", "-q", help="Search query to filter"),
     pretty: bool = typer.Option(True, "--pretty/--compact", help="Pretty print JSON"),
+    include_archived: bool = _INCLUDE_ARCHIVED_OPT,
     json_output: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
     """Export emails to JSON format."""
     from mail_memex.export import JsonExporter
 
-    result = _run_export(lambda: JsonExporter(output, pretty=pretty), query)
+    result = _run_export(
+        lambda: JsonExporter(output, pretty=pretty),
+        query,
+        include_archived=include_archived,
+    )
 
     if json_output:
         print(json_lib.dumps(result.to_dict(), indent=2))
@@ -790,12 +818,15 @@ def export_json(
 def export_mbox(
     output: Path = typer.Argument(..., help="Output file path"),
     query: str | None = typer.Option(None, "--query", "-q", help="Search query to filter"),
+    include_archived: bool = _INCLUDE_ARCHIVED_OPT,
     json: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
     """Export emails to mbox format."""
     from mail_memex.export import MboxExporter
 
-    result = _run_export(lambda: MboxExporter(output), query)
+    result = _run_export(
+        lambda: MboxExporter(output), query, include_archived=include_archived
+    )
 
     if json:
         print(json_lib.dumps(result.to_dict(), indent=2))
@@ -808,12 +839,17 @@ def export_markdown(
     output: Path = typer.Argument(..., help="Output directory"),
     query: str | None = typer.Option(None, "--query", "-q", help="Search query to filter"),
     threads: bool = typer.Option(False, "--threads", "-t", help="Group by thread"),
+    include_archived: bool = _INCLUDE_ARCHIVED_OPT,
     json: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
     """Export emails to Markdown files."""
     from mail_memex.export import MarkdownExporter
 
-    result = _run_export(lambda: MarkdownExporter(output, group_by_thread=threads), query)
+    result = _run_export(
+        lambda: MarkdownExporter(output, group_by_thread=threads),
+        query,
+        include_archived=include_archived,
+    )
 
     if json:
         print(json_lib.dumps(result.to_dict(), indent=2))
@@ -825,12 +861,15 @@ def export_markdown(
 def export_html(
     output: Path = typer.Argument(..., help="Output HTML file path"),
     query: str | None = typer.Option(None, "--query", "-q", help="Search query to filter"),
+    include_archived: bool = _INCLUDE_ARCHIVED_OPT,
     json_output: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
     """Export email archive as a self-contained HTML application."""
     from mail_memex.export.html_export import HtmlExporter
 
-    result = _run_export(lambda: HtmlExporter(output), query)
+    result = _run_export(
+        lambda: HtmlExporter(output), query, include_archived=include_archived
+    )
 
     if json_output:
         print(json_lib.dumps(result.to_dict(), indent=2))
@@ -844,12 +883,17 @@ def export_arkiv(
     output: Path = typer.Argument(..., help="Output JSONL file path"),
     query: str | None = typer.Option(None, "--query", "-q", help="Search query to filter"),
     include_body: bool = typer.Option(True, "--body/--no-body", help="Include email body text"),
+    include_archived: bool = _INCLUDE_ARCHIVED_OPT,
     json_output: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
     """Export emails to arkiv JSONL format."""
     from mail_memex.export.arkiv_export import ArkivExporter
 
-    result = _run_export(lambda: ArkivExporter(output, include_body=include_body), query)
+    result = _run_export(
+        lambda: ArkivExporter(output, include_body=include_body),
+        query,
+        include_archived=include_archived,
+    )
 
     if json_output:
         print(json_lib.dumps(result.to_dict(), indent=2))

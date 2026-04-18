@@ -86,6 +86,7 @@ class SearchEngine:
         limit: int = 50,
         offset: int = 0,
         order_by: Literal["date", "relevance"] = "relevance",
+        include_archived: bool = False,
     ) -> list[SearchResult]:
         """Search for emails matching the query.
 
@@ -94,6 +95,10 @@ class SearchEngine:
             limit: Maximum results to return.
             offset: Number of results to skip.
             order_by: Sort order - "date" (newest first) or "relevance".
+            include_archived: If True, soft-deleted emails are included in
+                results. Defaults to False — consistent with the workspace
+                convention that archived records stay resolvable but are
+                hidden from default queries.
 
         Returns:
             List of SearchResult objects.
@@ -102,9 +107,9 @@ class SearchEngine:
             query = self.parse_query(query)
 
         if query.text and self._has_fts5() and order_by == "relevance":
-            return self._fts5_search(query, limit, offset)
+            return self._fts5_search(query, limit, offset, include_archived)
         else:
-            return self._like_search(query, limit, offset, order_by)
+            return self._like_search(query, limit, offset, order_by, include_archived)
 
     def parse_query(self, query_str: str) -> SearchQuery:
         """Parse a query string into a SearchQuery object.
@@ -198,15 +203,20 @@ class SearchEngine:
                 continue
         return None
 
-    def _filter_conditions(self, query: SearchQuery) -> list:
+    def _filter_conditions(
+        self, query: SearchQuery, *, include_archived: bool = False
+    ) -> list:
         """Build SQLAlchemy field-filter conditions from a SearchQuery.
 
         Covers everything except free-text (which FTS5 and LIKE handle
-        differently). Always filters out soft-deleted emails.
+        differently). Filters out soft-deleted emails unless
+        include_archived=True.
         """
         from mail_memex.core.models import Attachment
 
-        conditions: list = [Email.archived_at.is_(None)]
+        conditions: list = []
+        if not include_archived:
+            conditions.append(Email.archived_at.is_(None))
 
         if query.from_addr:
             conditions.append(Email.from_addr.ilike(f"%{query.from_addr}%"))
@@ -244,6 +254,7 @@ class SearchEngine:
         query: SearchQuery,
         limit: int,
         offset: int,
+        include_archived: bool = False,
     ) -> list[SearchResult]:
         """Perform FTS5 search with BM25 ranking.
 
@@ -254,18 +265,21 @@ class SearchEngine:
 
         fts_query = prepare_fts_query(query.text or "")
         if not fts_query:
-            return self._like_search(query, limit, offset, "date")
+            return self._like_search(query, limit, offset, "date", include_archived)
 
-        # Get FTS5 results (may return more than needed since we filter after)
+        # Get FTS5 candidates; post-filter in SQLAlchemy below so archived
+        # rows (and field-filter mismatches) are dropped before scoring.
         fts_results = fts5_search(self.session, fts_query, limit=limit * 3, offset=0)
         if not fts_results:
-            # FTS5 query failed or no results — fall back to LIKE
-            return self._like_search(query, limit, offset, "relevance")
+            return self._like_search(query, limit, offset, "relevance", include_archived)
 
         fts_email_ids = [r["email_id"] for r in fts_results]
         fts_lookup = {r["email_id"]: r for r in fts_results}
 
-        conditions = [Email.id.in_(fts_email_ids), *self._filter_conditions(query)]
+        conditions = [
+            Email.id.in_(fts_email_ids),
+            *self._filter_conditions(query, include_archived=include_archived),
+        ]
         emails = self.session.execute(select(Email).where(and_(*conditions))).scalars().all()
 
         # Build results sorted by FTS5 rank (lower = better match)
@@ -305,9 +319,10 @@ class SearchEngine:
         limit: int,
         offset: int,
         order_by: str,
+        include_archived: bool = False,
     ) -> list[SearchResult]:
         """Perform keyword-based search using SQLite LIKE (fallback)."""
-        conditions = self._filter_conditions(query)
+        conditions = self._filter_conditions(query, include_archived=include_archived)
 
         if query.text:
             text_pattern = f"%{query.text}%"
