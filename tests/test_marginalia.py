@@ -337,3 +337,170 @@ class TestMarginaliaCRUD:
         """restore_marginalia returns None for a missing UUID."""
         result = restore_marginalia(session, uuid="nonexistentuuid0000000000000000")
         assert result is None
+
+
+class TestMarginaliaOrphanSurvival:
+    """Regression tests for the orphan-survival contract.
+
+    Per the workspace design: marginalia are addressed by durable UUIDs
+    and survive the lifecycle of their targets. A note attached to an
+    email that is later soft-deleted stays queryable. A note whose only
+    target is hard-deleted becomes an orphan note — still reachable by
+    UUID, no longer listed under the (now gone) target URI.
+
+    The target linkage is a plain URI string with no FK, so there is no
+    cascade from email deletion to marginalia. This test class pins the
+    behavior so future schema changes can't silently break it.
+    """
+
+    def test_marginalia_survives_target_email_soft_delete(self, session) -> None:
+        """Soft-deleting the target email leaves the marginalia intact and
+        still listable under the email's URI (archived URIs resolve)."""
+        from mail_memex.core.models import Email
+
+        email = Email(
+            message_id="survive-soft@example.com",
+            from_addr="a@x.com",
+            subject="target",
+            body_text="",
+            date=datetime(2024, 1, 1),
+        )
+        session.add(email)
+        session.commit()
+
+        note = create_marginalia(
+            session,
+            target_uris=["mail-memex://email/survive-soft@example.com"],
+            content="A note that outlives its target",
+        )
+        session.commit()
+
+        email.archived_at = datetime.now(UTC)
+        session.commit()
+
+        # Lookup by UUID still works.
+        found = get_marginalia(session, uuid=note["uuid"])
+        assert found is not None
+        assert found["content"] == "A note that outlives its target"
+
+        # And it's still listed under the email URI.
+        listed = list_marginalia(
+            session, target_uri="mail-memex://email/survive-soft@example.com"
+        )
+        assert note["uuid"] in {m["uuid"] for m in listed}
+
+    def test_marginalia_survives_target_email_hard_delete(self, session) -> None:
+        """Hard-deleting the target email does NOT cascade to marginalia.
+        The note persists as an orphan, addressable only by UUID. The
+        MarginaliaTarget row also persists (no FK constraint on target_uri).
+        """
+        from mail_memex.core.models import Email
+
+        email = Email(
+            message_id="survive-hard@example.com",
+            from_addr="a@x.com",
+            subject="target",
+            body_text="",
+            date=datetime(2024, 1, 1),
+        )
+        session.add(email)
+        session.commit()
+
+        note = create_marginalia(
+            session,
+            target_uris=["mail-memex://email/survive-hard@example.com"],
+            content="Orphan me",
+        )
+        session.commit()
+
+        session.delete(email)
+        session.commit()
+
+        found = get_marginalia(session, uuid=note["uuid"])
+        assert found is not None
+        assert found["content"] == "Orphan me"
+        assert "mail-memex://email/survive-hard@example.com" in found["target_uris"], (
+            "Target URI must persist as a string even after the email row is gone"
+        )
+
+    def test_marginalia_survives_all_targets_gone(self, session) -> None:
+        """A note whose every target's record has been hard-deleted is
+        reachable only by UUID. list_marginalia(target_uri=...) returns
+        empty since no live target points there, but get_marginalia(uuid)
+        still resolves — the note is an orphan, not a loss."""
+        from mail_memex.core.models import Email
+
+        email = Email(
+            message_id="all-gone@example.com",
+            from_addr="a@x.com",
+            subject="t",
+            body_text="",
+            date=datetime(2024, 1, 1),
+        )
+        session.add(email)
+        session.commit()
+
+        note = create_marginalia(
+            session,
+            target_uris=["mail-memex://email/all-gone@example.com"],
+            content="Floating orphan",
+        )
+        session.commit()
+
+        session.delete(email)
+        session.commit()
+
+        # Direct lookup by UUID: still there.
+        assert get_marginalia(session, uuid=note["uuid"]) is not None
+        # Global list: still there (not filtered by target existence).
+        all_notes = list_marginalia(session)
+        assert note["uuid"] in {m["uuid"] for m in all_notes}
+
+    def test_multi_target_note_survives_partial_target_loss(self, session) -> None:
+        """A note attached to two emails; deleting one email must not
+        affect the note, and the other target URI must continue to list it."""
+        from mail_memex.core.models import Email
+
+        e1 = Email(
+            message_id="multi-a@example.com",
+            from_addr="a@x.com",
+            subject="a",
+            body_text="",
+            date=datetime(2024, 1, 1),
+        )
+        e2 = Email(
+            message_id="multi-b@example.com",
+            from_addr="a@x.com",
+            subject="b",
+            body_text="",
+            date=datetime(2024, 1, 2),
+        )
+        session.add_all([e1, e2])
+        session.commit()
+
+        note = create_marginalia(
+            session,
+            target_uris=[
+                "mail-memex://email/multi-a@example.com",
+                "mail-memex://email/multi-b@example.com",
+            ],
+            content="Attached to both",
+        )
+        session.commit()
+
+        session.delete(e1)
+        session.commit()
+
+        # Still listed under the surviving target.
+        under_b = list_marginalia(
+            session, target_uri="mail-memex://email/multi-b@example.com"
+        )
+        assert note["uuid"] in {m["uuid"] for m in under_b}
+
+        # And still reachable by UUID with both URIs preserved.
+        found = get_marginalia(session, uuid=note["uuid"])
+        assert found is not None
+        assert set(found["target_uris"]) == {
+            "mail-memex://email/multi-a@example.com",
+            "mail-memex://email/multi-b@example.com",
+        }
