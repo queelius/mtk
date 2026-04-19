@@ -207,11 +207,12 @@ def _resolve_thread_root(email, session) -> str | None:
 
         # Candidate parent IDs, in preference order: In-Reply-To first
         # (immediate parent), then References walking newest-to-oldest.
+        # All ingestion sites route Message-IDs through clean_message_id
+        # so no defensive strip is needed here.
         parent_ids: list[str] = []
         if current.in_reply_to:
-            parent_ids.append(current.in_reply_to.strip("<>"))
+            parent_ids.append(current.in_reply_to)
         for ref in reversed((current.references or "").split()):
-            ref = ref.strip("<>")
             if ref and ref not in parent_ids:
                 parent_ids.append(ref)
 

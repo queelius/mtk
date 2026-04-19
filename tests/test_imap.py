@@ -983,6 +983,37 @@ class TestPullSync:
             assert state.last_uid == 0
             assert state.uid_validity is None
 
+    def test_pull_stores_in_reply_to_without_angle_brackets(
+        self, imap_db: Database, imap_account: ImapAccountConfig
+    ) -> None:
+        """Regression: IMAP pull used to store In-Reply-To with angle
+        brackets while file imports stripped them, giving two shapes in
+        the same column. Threading then had to strip defensively at
+        query time. Both ingestion sites now share clean_message_id."""
+        from mail_memex.imap.pull import PullResult, PullSync
+
+        with imap_db.session() as session:
+            pull = PullSync(session, imap_account, TagMapper())
+            header = (
+                b"From: a@example.com\r\n"
+                b"Subject: Reply\r\n"
+                b"Message-ID: <reply@example.com>\r\n"
+                b"In-Reply-To: <parent@example.com>\r\n"
+                b"References: <root@example.com> <middle@example.com> <parent@example.com>\r\n"
+            )
+            data = {b"BODY[HEADER]": header, b"BODY[TEXT]": b"body", b"FLAGS": ()}
+            pull._process_message(
+                uid=1, data=data, folder="INBOX", result=PullResult(account="test", folder="INBOX")
+            )
+            session.flush()
+
+            email = session.execute(
+                select(Email).where(Email.message_id == "reply@example.com")
+            ).scalar()
+            assert email is not None
+            assert email.in_reply_to == "parent@example.com"  # no brackets
+            assert email.references == "root@example.com middle@example.com parent@example.com"
+
     def test_count_emails_in_folder_filters_account_and_folder(
         self, imap_populated_db: Database, imap_account: ImapAccountConfig
     ) -> None:

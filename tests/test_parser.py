@@ -205,6 +205,38 @@ Body.
         assert result1.message_id == result2.message_id
 
 
+class TestCleanMessageId:
+    """Tests for the module-level clean_message_id() invariant helper.
+
+    Threading and query code assume stored Message-IDs have no angle
+    brackets. Every ingestion site — file parsers, IMAP pull — must route
+    through this function so no defensive strip is needed downstream.
+    """
+
+    def test_strips_angle_brackets(self) -> None:
+        from mail_memex.importers.parser import clean_message_id
+
+        assert clean_message_id("<abc@example.com>") == "abc@example.com"
+
+    def test_strips_whitespace_and_brackets(self) -> None:
+        from mail_memex.importers.parser import clean_message_id
+
+        assert clean_message_id("  <abc@example.com>  ") == "abc@example.com"
+
+    def test_already_clean_passes_through(self) -> None:
+        from mail_memex.importers.parser import clean_message_id
+
+        assert clean_message_id("abc@example.com") == "abc@example.com"
+
+    def test_none_and_empty_return_none(self) -> None:
+        from mail_memex.importers.parser import clean_message_id
+
+        assert clean_message_id(None) is None
+        assert clean_message_id("") is None
+        assert clean_message_id("   ") is None
+        assert clean_message_id("<>") is None
+
+
 class TestDateParsing:
     """Tests for date parsing with various formats."""
 

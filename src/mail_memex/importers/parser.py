@@ -19,6 +19,22 @@ from pathlib import Path
 from typing import BinaryIO
 
 
+def clean_message_id(msg_id: str | None) -> str | None:
+    """Normalize a Message-ID header value to the stored form.
+
+    The workspace invariant is that message_id, in_reply_to, and entries
+    in references are stored WITHOUT angle brackets. Ingestion sites
+    (parser, IMAP pull) must route through this function; query sites
+    (threading, exports) then don't need defensive strips.
+
+    Returns None for empty/missing input.
+    """
+    if not msg_id:
+        return None
+    cleaned = msg_id.strip().strip("<>").strip()
+    return cleaned or None
+
+
 @dataclass
 class ParsedAttachment:
     """A parsed email attachment."""
@@ -203,12 +219,13 @@ class EmailParser:
         return f"generated-{hash_id}@mail-memex.local"
 
     def _clean_message_id(self, msg_id: str | None) -> str | None:
-        """Clean a Message-ID, removing angle brackets."""
-        if not msg_id:
-            return None
-        # Remove angle brackets and whitespace
-        cleaned = msg_id.strip().strip("<>").strip()
-        return cleaned if cleaned else None
+        """Clean a Message-ID, removing angle brackets.
+
+        Thin wrapper around the module-level clean_message_id() so other
+        ingestion sites can share the canonical normalizer without
+        depending on the EmailParser class.
+        """
+        return clean_message_id(msg_id)
 
     def _parse_address(self, header: str) -> tuple[str, str | None]:
         """Parse a single address header into (email, name)."""

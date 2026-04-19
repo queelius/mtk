@@ -11,6 +11,17 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import func, select
 
 from mail_memex.core.models import Email, ImapSyncState, Tag
+from mail_memex.importers.parser import clean_message_id
+
+
+def _normalize_references(raw: str | None) -> str | None:
+    """Split a References header into tokens and re-join space-separated
+    without angle brackets — matching what the file/mbox importers store."""
+    if not raw:
+        return None
+    parts = [clean_message_id(tok) for tok in raw.split()]
+    cleaned = [p for p in parts if p]
+    return " ".join(cleaned) if cleaned else None
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -170,7 +181,7 @@ class PullSync:
         )
         msg = email_lib.message_from_string(header_text)
 
-        message_id = msg.get("Message-ID", "").strip("<>")
+        message_id = clean_message_id(msg.get("Message-ID"))
         if not message_id:
             message_id = f"imap-{self.account.name}-{folder}-{uid}"
 
@@ -212,8 +223,11 @@ class PullSync:
                 from_name=from_name or None,
                 subject=msg.get("Subject"),
                 date=date_tuple,
-                in_reply_to=msg.get("In-Reply-To", "").strip("<>") or None,
-                references=msg.get("References"),
+                in_reply_to=clean_message_id(msg.get("In-Reply-To")),
+                # Clean each token so the stored form matches what the
+                # file/mbox importers produce: space-joined, no angle
+                # brackets. Threading relies on this invariant.
+                references=_normalize_references(msg.get("References")),
                 body_text=body_text,
                 body_preview=body_text[:500] if body_text else None,
                 imap_uid=uid,
