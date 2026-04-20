@@ -77,8 +77,14 @@ class ParsedEmail:
     # Attachments (metadata only)
     attachments: list[ParsedAttachment] = field(default_factory=list)
 
-    # Raw headers for preservation
+    # Flat header dict (last-wins for duplicates). Kept for easy
+    # json_extract(metadata_json, '$.X-Gmail-Labels') access in SQL.
     raw_headers: dict[str, str] = field(default_factory=dict)
+    # Full-fidelity ordered list of (name, value) pairs. Preserves every
+    # occurrence of multi-value headers: Received chain, ARC-*, DKIM-
+    # Signature stacks. Keyed access via raw_headers; audit trail via
+    # raw_headers_all.
+    raw_headers_all: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def body_preview(self) -> str | None:
@@ -185,8 +191,11 @@ class EmailParser:
         # Extract attachment metadata
         attachments = self._extract_attachments(msg)
 
-        # Preserve raw headers
-        raw_headers = {k: str(v) for k, v in msg.items()}
+        # Preserve raw headers. msg.items() yields one tuple per
+        # occurrence; the flat dict drops duplicates (last wins) while
+        # raw_headers_all keeps everything in original order.
+        raw_headers_all: list[tuple[str, str]] = [(k, str(v)) for k, v in msg.items()]
+        raw_headers = dict(raw_headers_all)
 
         return ParsedEmail(
             message_id=message_id,
@@ -205,6 +214,7 @@ class EmailParser:
             body_html=body_html,
             attachments=attachments,
             raw_headers=raw_headers,
+            raw_headers_all=raw_headers_all,
         )
 
     def _get_message_id(self, msg: EmailMessage) -> str:

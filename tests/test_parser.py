@@ -205,6 +205,72 @@ Body.
         assert result1.message_id == result2.message_id
 
 
+class TestFullHeaderPreservation:
+    """Regression: multi-occurrence headers (Received, DKIM-Signature, ARC)
+    must survive ingestion. The flat raw_headers dict loses duplicates
+    (last-wins); raw_headers_all preserves every occurrence in order."""
+
+    def test_received_chain_preserved(self) -> None:
+        """A real Gmail mbox has 2-5+ Received headers per message.
+        raw_headers keeps only the last; raw_headers_all keeps all."""
+        from mail_memex.importers.parser import EmailParser
+
+        parser = EmailParser()
+        email = (
+            b"Received: by server-A\r\n"
+            b"Received: by server-B\r\n"
+            b"Received: by server-C\r\n"
+            b"From: sender@example.com\r\n"
+            b"Message-ID: <multi-received@example.com>\r\n"
+            b"\r\n"
+            b"body"
+        )
+        result = parser.parse_bytes(email)
+
+        # Flat dict has only the last (Python dict semantics).
+        assert "Received" in result.raw_headers
+        assert result.raw_headers["Received"] == "by server-C"
+
+        # Full list preserves all three in order.
+        received_values = [v for k, v in result.raw_headers_all if k == "Received"]
+        assert received_values == ["by server-A", "by server-B", "by server-C"]
+
+    def test_dkim_stack_preserved(self) -> None:
+        """Emails that pass multiple DKIM-authenticated hops carry several
+        DKIM-Signature headers. All must survive."""
+        from mail_memex.importers.parser import EmailParser
+
+        parser = EmailParser()
+        email = (
+            b"DKIM-Signature: v=1; d=hop1\r\n"
+            b"DKIM-Signature: v=1; d=hop2\r\n"
+            b"From: sender@example.com\r\n"
+            b"Message-ID: <dkim@example.com>\r\n"
+            b"\r\n"
+            b"body"
+        )
+        result = parser.parse_bytes(email)
+        dkim_values = [v for k, v in result.raw_headers_all if k == "DKIM-Signature"]
+        assert dkim_values == ["v=1; d=hop1", "v=1; d=hop2"]
+
+    def test_single_occurrence_still_in_both(self) -> None:
+        """Singleton headers appear in both raw_headers and raw_headers_all.
+        This is the common case, e.g. X-Gmail-Labels."""
+        from mail_memex.importers.parser import EmailParser
+
+        parser = EmailParser()
+        email = (
+            b"X-Gmail-Labels: Inbox,Important\r\n"
+            b"From: sender@example.com\r\n"
+            b"Message-ID: <single@example.com>\r\n"
+            b"\r\n"
+            b"body"
+        )
+        result = parser.parse_bytes(email)
+        assert result.raw_headers["X-Gmail-Labels"] == "Inbox,Important"
+        assert ("X-Gmail-Labels", "Inbox,Important") in result.raw_headers_all
+
+
 class TestCleanMessageId:
     """Tests for the module-level clean_message_id() invariant helper.
 

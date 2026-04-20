@@ -413,10 +413,18 @@ def _run_import_with_importer(importer, db: Database, json_output: bool = False)
                 email.recipients.extend(build_recipients(parsed.cc_addrs, parsed.cc_names, "cc"))
                 email.recipients.extend(build_recipients(parsed.bcc_addrs, None, "bcc"))
 
-                # Preserve all headers (Gmail labels, List-Id, etc.) as JSON.
-                # Queryable via json_extract(metadata_json, '$.X-Gmail-Labels').
-                if parsed.raw_headers:
-                    email.metadata_json = json_lib.dumps(parsed.raw_headers)
+                # Preserve all headers as JSON. Shape:
+                #   Flat keys (X-Gmail-Labels, X-GM-THRID, etc.) for direct
+                #   SQL access: json_extract(metadata_json, '$.X-Gmail-Labels').
+                #   _headers is the ordered full list of (name, value) pairs,
+                #   preserving duplicates (Received chain, multiple DKIM, ARC).
+                if parsed.raw_headers or parsed.raw_headers_all:
+                    payload: dict[str, object] = dict(parsed.raw_headers)
+                    if parsed.raw_headers_all:
+                        payload["_headers"] = [
+                            [k, v] for k, v in parsed.raw_headers_all
+                        ]
+                    email.metadata_json = json_lib.dumps(payload)
 
                 for att in parsed.attachments:
                     attachment = Attachment(
