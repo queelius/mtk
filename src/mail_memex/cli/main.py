@@ -828,12 +828,26 @@ def _prepare_export(
     return list(session.execute(stmt).scalars())
 
 
-def _run_export(exporter_factory, query: str | None, *, include_archived: bool = False):
-    """Open a session, fetch emails, run the exporter, return the result."""
+def _run_export(
+    exporter_factory,
+    query: str | None,
+    *,
+    include_archived: bool = False,
+    pass_session: bool = False,
+):
+    """Open a session, fetch emails, run the exporter, return the result.
+
+    When ``pass_session=True`` the exporter is called as
+    ``export(emails, session=session)``. The arkiv exporter uses this to
+    include marginalia records alongside emails.
+    """
     db = get_db()
     with db.session() as session:
         emails = _prepare_export(session, query, include_archived=include_archived)
-        return exporter_factory().export(emails)
+        exporter = exporter_factory()
+        if pass_session:
+            return exporter.export(emails, session=session)
+        return exporter.export(emails)
 
 
 _INCLUDE_ARCHIVED_OPT = typer.Option(
@@ -932,26 +946,33 @@ def export_html(
 
 @export_app.command("arkiv")
 def export_arkiv(
-    output: Path = typer.Argument(..., help="Output JSONL file path"),
+    output: Path = typer.Argument(
+        ...,
+        help=(
+            "Output path. If it ends in .zip or .tar.gz/.tgz the bundle "
+            "is written as a single compressed archive; any other path is "
+            "a directory containing records.jsonl, schema.yaml, README.md."
+        ),
+    ),
     query: str | None = typer.Option(None, "--query", "-q", help="Search query to filter"),
     include_body: bool = typer.Option(True, "--body/--no-body", help="Include email body text"),
     include_archived: bool = _INCLUDE_ARCHIVED_OPT,
     json_output: bool = typer.Option(False, "--json", "-j", help="Output result as JSON"),
 ) -> None:
-    """Export emails to arkiv JSONL format."""
+    """Export emails and marginalia to an arkiv bundle (dir / zip / tar.gz)."""
     from mail_memex.export.arkiv_export import ArkivExporter
 
     result = _run_export(
         lambda: ArkivExporter(output, include_body=include_body),
         query,
         include_archived=include_archived,
+        pass_session=True,
     )
 
     if json_output:
         print(json_lib.dumps(result.to_dict(), indent=2))
     else:
         console.print(f"[green]Exported {result.emails_exported} emails to {output}[/green]")
-        console.print(f"  Schema written to {output.parent / 'schema.yaml'}")
 
 
 # === IMAP Commands ===
