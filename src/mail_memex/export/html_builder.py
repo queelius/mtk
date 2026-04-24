@@ -1,7 +1,14 @@
 """Build an in-memory SQLite database for HTML SPA export.
 
-Creates a denormalized export schema with tags as JSON arrays (no join tables),
-and an FTS5 index for client-side search.
+Creates a denormalized export schema with tags as JSON arrays (no join
+tables). We deliberately *do not* ship FTS5 virtual tables: the vendored
+sql.js build (``src/mail_memex/export/vendored/sql-wasm.{js,wasm}``) is
+not compiled with ``SQLITE_ENABLE_FTS5``, so FTS5 queries would throw
+in the browser. Client-side search uses a LIKE fallback instead, which
+is adequate for a single-user email archive.
+
+``PRAGMA journal_mode=DELETE`` is set before serialisation so no WAL
+sidecar gets left behind if the process is interrupted mid-export.
 """
 
 from __future__ import annotations
@@ -20,16 +27,18 @@ def build_export_db(emails: list[Email]) -> bytes:
     The export schema is denormalized for simplicity in the browser:
     - emails table with tags_json (JSON array) instead of a join table
     - threads table with pre-computed stats
-    - emails_fts FTS5 virtual table for full-text search
 
     Args:
         emails: List of Email ORM objects to include.
 
     Returns:
-        Raw SQLite database bytes.
+        Raw SQLite database bytes. Size minimised by running VACUUM
+        before serialisation.
     """
     conn = sqlite3.connect(":memory:")
     cursor = conn.cursor()
+    # DELETE mode -> no -wal/-shm sidecars travel with the exported DB.
+    cursor.execute("PRAGMA journal_mode=DELETE")
 
     # Create simplified, denormalized schema
     cursor.execute("""
@@ -91,25 +100,10 @@ def build_export_db(emails: list[Email]) -> bytes:
     for td in threads_seen.values():
         cursor.execute("INSERT INTO threads VALUES (?,?,?,?,?)", td)
 
-    # Build FTS5 index for client-side search
-    cursor.execute("""
-        CREATE VIRTUAL TABLE emails_fts USING fts5(
-            email_id UNINDEXED,
-            subject,
-            body_text,
-            from_addr,
-            from_name,
-            tokenize='porter unicode61'
-        )
-    """)
-    cursor.execute("""
-        INSERT INTO emails_fts(email_id, subject, body_text, from_addr, from_name)
-        SELECT id, COALESCE(subject,''), COALESCE(body_text,''),
-               COALESCE(from_addr,''), COALESCE(from_name,'')
-        FROM emails
-    """)
-
     conn.commit()
+    # VACUUM packs the file to a minimum on-disk size; over the wire
+    # the gzip-step in html_export.py will compress the result further.
+    conn.execute("VACUUM")
 
     # Serialize to bytes -- available in Python 3.11+
     db_bytes: bytes = conn.serialize()

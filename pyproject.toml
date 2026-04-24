@@ -59,6 +59,13 @@ mail-memex = "mail_memex.cli.main:app"
 [tool.hatch.build.targets.wheel]
 packages = ["src/mail_memex"]
 
+[tool.hatch.build.targets.wheel.force-include]
+# Ship vendored sql.js so the HTML SPA exporter works without any CDN.
+"src/mail_memex/export/vendored/sql-wasm.js" = "mail_memex/export/vendored/sql-wasm.js"
+"src/mail_memex/export/vendored/sql-wasm.wasm" = "mail_memex/export/vendored/sql-wasm.wasm"
+# The SPA HTML template lives as an asset next to the Python sources.
+"src/mail_memex/export/templates_index.html" = "mail_memex/export/templates_index.html"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>mail-memex</title>
+<style>
+:root {
+  --bg: #1a1714;
+  --bg-surface: #221e1a;
+  --bg-overlay: #2b2620;
+  --bg-elevated: #322c25;
+  --text: #e8e1d3;
+  --text-muted: #938c7e;
+  --text-subtle: #6e685c;
+  --text-strong: #f7f1e4;
+  --text-accent: #d4a46a;
+  --border: #3a342c;
+  --border-strong: #4a4238;
+  --border-accent: #d4a46a;
+  --badge-bg: rgba(212, 164, 106, 0.14);
+  --badge-text: #e8c088;
+  --selection: rgba(212, 164, 106, 0.18);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --header-height: 56px;
+  --list-width: 40%;
+  --list-min: 320px;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino", "Georgia", serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, Menlo, monospace;
+  --font-size: 14px;
+  --font-size-sm: 12px;
+  --font-size-lg: 15px;
+  --font-size-xl: 18px;
+  --radius-sm: 4px;
+  --radius: 8px;
+  --gap: 10px;
+  --gap-sm: 6px;
+  --gap-lg: 18px;
+  --gap-xl: 28px;
+}
+:root[data-theme="light"] {
+  --bg: #faf7f0;
+  --bg-surface: #f2ede2;
+  --bg-overlay: #ffffff;
+  --bg-elevated: #ffffff;
+  --text: #2e2820;
+  --text-muted: #7a7162;
+  --text-subtle: #a39a8a;
+  --text-strong: #1a1610;
+  --text-accent: #8a5a2b;
+  --border: #e4ddce;
+  --border-strong: #cfc6b2;
+  --border-accent: #8a5a2b;
+  --badge-bg: #f3e6d0;
+  --badge-text: #6e4520;
+  --selection: rgba(138, 90, 43, 0.14);
+  --shadow-sm: 0 1px 2px rgba(60, 42, 20, 0.08);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: var(--font-size); line-height: 1.5; }
+::selection { background: var(--selection); }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+body { display: flex; flex-direction: column; }
+header { position: sticky; top: 0; height: var(--header-height); background: var(--bg-surface); border-bottom: 1px solid var(--border); padding: 0 var(--gap-lg); display: flex; gap: var(--gap); align-items: center; z-index: 10; }
+#brand { color: var(--text-strong); font-family: var(--font-serif); font-size: var(--font-size-xl); font-weight: 600; letter-spacing: 0.3px; text-decoration: none; flex-shrink: 0; }
+#search { flex: 1; padding: 8px 12px; border: 1px solid var(--border); background: var(--bg-overlay); color: var(--text); font-family: inherit; font-size: var(--font-size); border-radius: var(--radius-sm); min-width: 120px; }
+#search:focus { outline: none; border-color: var(--border-accent); box-shadow: 0 0 0 3px var(--badge-bg); }
+#stats { font-size: var(--font-size-sm); color: var(--text-muted); white-space: nowrap; }
+.btn.icon-btn { background: transparent; border: 1px solid var(--border); color: var(--text-muted); font-size: var(--font-size-lg); padding: 6px 10px; border-radius: var(--radius-sm); cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+.btn.icon-btn:hover { background: var(--bg-elevated); color: var(--text-strong); border-color: var(--border-strong); }
+main { flex: 1; display: flex; overflow: hidden; }
+#list-pane { width: var(--list-width); min-width: var(--list-min); border-right: 1px solid var(--border); overflow-y: auto; background: var(--bg); }
+#detail-pane { flex: 1; overflow-y: auto; padding: var(--gap-lg) var(--gap-xl); background: var(--bg-surface); }
+table { width: 100%; border-collapse: collapse; font-size: var(--font-size); }
+thead th { position: sticky; top: 0; background: var(--bg-surface); text-align: left; padding: 8px var(--gap); border-bottom: 1px solid var(--border); font-weight: 600; color: var(--text-subtle); font-size: var(--font-size-sm); text-transform: uppercase; letter-spacing: 0.5px; }
+tbody tr { cursor: pointer; border-bottom: 1px solid var(--border); }
+tbody tr:hover { background: var(--bg-surface); }
+tbody tr.selected { background: var(--bg-elevated); }
+td { padding: 8px var(--gap); vertical-align: top; }
+td.date { white-space: nowrap; color: var(--text-muted); width: 130px; font-family: var(--font-mono); font-size: var(--font-size-sm); }
+td.from { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; color: var(--text); }
+td.subject { font-weight: 500; font-family: var(--font-serif); color: var(--text-strong); }
+td.tags { font-size: var(--font-size-sm); white-space: nowrap; }
+.tag { display: inline-block; background: var(--badge-bg); color: var(--badge-text); padding: 2px 10px; border-radius: 999px; margin-right: 3px; font-size: var(--font-size-sm); font-weight: 500; text-decoration: none; cursor: pointer; line-height: 1.5; }
+.tag:hover { filter: brightness(1.1); }
+.breadcrumb { color: var(--text-muted); font-size: var(--font-size-sm); margin-bottom: var(--gap); }
+.breadcrumb a { color: var(--text-accent); text-decoration: none; cursor: pointer; }
+.breadcrumb a:hover { text-decoration: underline; }
+.email-header h2 { font-family: var(--font-serif); font-size: 22px; font-weight: 600; color: var(--text-strong); margin-bottom: 8px; }
+.meta { font-size: var(--font-size); color: var(--text-muted); line-height: 1.7; margin-bottom: var(--gap-lg); }
+.meta strong { color: var(--text); font-weight: 500; margin-right: 4px; }
+.meta .addr { font-family: var(--font-mono); font-size: var(--font-size-sm); }
+.body-text { white-space: pre-wrap; font-size: var(--font-size); line-height: 1.7; background: var(--bg-overlay); padding: var(--gap-lg); border-radius: var(--radius); border: 1px solid var(--border); color: var(--text); font-family: var(--font-sans); }
+.empty { text-align: center; color: var(--text-muted); padding: var(--gap-xl); font-family: var(--font-serif); }
+#loading { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-family: var(--font-serif); }
+</style>
+</head>
+<body>
+<div id="loading">loading archive...</div>
+<header id="app-header" style="display:none">
+  <a id="brand" href="#/">mail-memex</a>
+  <input id="search" placeholder="Search subject, body, or sender...">
+  <span id="stats"></span>
+  <button class="btn icon-btn" id="theme-toggle" title="toggle light/dark mode">&#9790;</button>
+</header>
+<main id="app-body" style="display:none">
+  <div id="list-pane"></div>
+  <div id="detail-pane"></div>
+</main>
+<script>__SQLJS_INLINE__</script>
+<script id="bm-wasm-b64" type="application/base64">__WASM_BASE64__</script>
+<script id="bm-db-b64" type="application/base64">__DB_BASE64_GZ__</script>
+<script>
+(async function () {
+  "use strict";
+  const THEME_KEY = "mail_memex_theme";
+  const themeBtn = document.getElementById("theme-toggle");
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    if (themeBtn) themeBtn.textContent = theme === "dark" ? "☾" : "☀";
+  }
+  function initTheme() {
+    const saved = localStorage.getItem(THEME_KEY);
+    let theme;
+    if (saved === "light" || saved === "dark") theme = saved;
+    else theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    applyTheme(theme);
+  }
+  function toggleTheme() {
+    const current = document.documentElement.getAttribute("data-theme") || "dark";
+    const next = current === "dark" ? "light" : "dark";
+    applyTheme(next);
+    localStorage.setItem(THEME_KEY, next);
+  }
+  initTheme();
+  themeBtn.addEventListener("click", toggleTheme);
+  function el(tag, attrs) {
+    const n = document.createElement(tag);
+    if (attrs) for (const k of Object.keys(attrs)) {
+      if (k === "class") n.className = attrs[k];
+      else if (k === "text") n.textContent = attrs[k];
+      else n.setAttribute(k, attrs[k]);
+    }
+    for (let i = 2; i < arguments.length; i++) {
+      const c = arguments[i];
+      if (c === null || c === undefined) continue;
+      if (typeof c === "string") n.appendChild(document.createTextNode(c));
+      else n.appendChild(c);
+    }
+    return n;
+  }
+  function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
+  function readInlineBase64(id) {
+    const n = document.getElementById(id);
+    return n ? (n.textContent || "").trim() : "";
+  }
+  function base64ToBytes(b64) {
+    const bin = atob(b64.replace(/\s/g, ""));
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  async function gunzip(bytes) {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+  async function loadDb() {
+    const wasmBinary = base64ToBytes(readInlineBase64("bm-wasm-b64"));
+    const SQL = await initSqlJs({ wasmBinary, locateFile: () => "data:application/wasm;base64," });
+    const gz = base64ToBytes(readInlineBase64("bm-db-b64"));
+    const raw = await gunzip(gz);
+    return new SQL.Database(raw);
+  }
+  function all(db, sql, params) {
+    const stmt = db.prepare(sql);
+    stmt.bind(params || []);
+    const rows = [];
+    while (stmt.step()) rows.push(stmt.getAsObject());
+    stmt.free();
+    return rows;
+  }
+  function fetchRecent(db, limit) {
+    return all(db, "SELECT id, date, from_addr, from_name, subject, tags_json FROM emails ORDER BY date DESC LIMIT ?", [limit || 200]);
+  }
+  function fetchBySearch(db, q) {
+    const like = "%" + q + "%";
+    return all(db, "SELECT id, date, from_addr, from_name, subject, tags_json FROM emails WHERE subject LIKE ? OR body_text LIKE ? OR from_addr LIKE ? OR from_name LIKE ? ORDER BY date DESC LIMIT 200", [like, like, like, like]);
+  }
+  function fetchByTag(db, tag) {
+    const like = '%"' + tag.replace(/"/g, '""') + '"%';
+    return all(db, "SELECT id, date, from_addr, from_name, subject, tags_json FROM emails WHERE tags_json LIKE ? ORDER BY date DESC", [like]);
+  }
+  function fetchByThread(db, threadId) {
+    return all(db, "SELECT id, date, from_addr, from_name, subject, tags_json FROM emails WHERE thread_id = ? ORDER BY date ASC", [threadId]);
+  }
+  function fetchEmail(db, id) {
+    const rows = all(db, "SELECT * FROM emails WHERE id = ? LIMIT 1", [id]);
+    return rows[0] || null;
+  }
+  function parseTags(tagsJson) {
+    if (!tagsJson) return [];
+    try { return JSON.parse(tagsJson); } catch (_) { return []; }
+  }
+  function buildTagSpan(t) {
+    const a = el("a", { class: "tag", href: "#/tag/" + encodeURIComponent(t) });
+    a.textContent = t;
+    return a;
+  }
+  function buildListRow(r) {
+    const tr = el("tr", { "data-id": r.id });
+    const date = (r.date || "").substring(0, 16).replace("T", " ");
+    const fromText = r.from_name || r.from_addr || "";
+    const subject = r.subject || "(no subject)";
+    const tagBox = el("span");
+    parseTags(r.tags_json).forEach(t => tagBox.appendChild(buildTagSpan(t)));
+    tr.appendChild(el("td", { class: "date" }, date));
+    tr.appendChild(el("td", { class: "from" }, fromText));
+    tr.appendChild(el("td", { class: "subject" }, subject));
+    tr.appendChild(el("td", { class: "tags" }, tagBox));
+    tr.addEventListener("click", () => { location.hash = "#/email/" + encodeURIComponent(r.id); });
+    return tr;
+  }
+  function buildListTable(rows) {
+    if (!rows.length) {
+      const p = el("p", { class: "empty" });
+      p.textContent = "No matching emails.";
+      return p;
+    }
+    const table = el("table");
+    const thead = el("thead");
+    const hdr = el("tr");
+    ["Date", "From", "Subject", "Tags"].forEach(h => hdr.appendChild(el("th", null, h)));
+    thead.appendChild(hdr);
+    table.appendChild(thead);
+    const tbody = el("tbody");
+    rows.forEach(r => tbody.appendChild(buildListRow(r)));
+    table.appendChild(tbody);
+    return table;
+  }
+  function buildEmailDetail(e) {
+    const frag = document.createDocumentFragment();
+    const crumb = el("div", { class: "breadcrumb" });
+    const back = el("a", { href: "#/" });
+    back.textContent = "← back";
+    crumb.appendChild(back);
+    if (e.thread_id) {
+      crumb.appendChild(document.createTextNode("  ·  "));
+      const threadLink = el("a", { href: "#/thread/" + encodeURIComponent(e.thread_id) });
+      threadLink.textContent = "view thread";
+      crumb.appendChild(threadLink);
+    }
+    frag.appendChild(crumb);
+    const header = el("div", { class: "email-header" });
+    header.appendChild(el("h2", null, e.subject || "(no subject)"));
+    const meta = el("div", { class: "meta" });
+    function row(label, value, addr) {
+      if (!value) return;
+      meta.appendChild(el("strong", null, label));
+      if (addr) meta.appendChild(el("span", { class: "addr" }, value));
+      else meta.appendChild(document.createTextNode(value));
+      meta.appendChild(el("br"));
+    }
+    const fromDisplay = [e.from_name, e.from_addr].filter(Boolean).join(" ").trim();
+    row("From:", fromDisplay || "");
+    row("To:", e.to_addrs || "", true);
+    row("Date:", (e.date || "").replace("T", " "));
+    const tags = parseTags(e.tags_json);
+    if (tags.length) {
+      meta.appendChild(el("strong", null, "Tags:"));
+      tags.forEach(t => {
+        meta.appendChild(buildTagSpan(t));
+        meta.appendChild(document.createTextNode(" "));
+      });
+      meta.appendChild(el("br"));
+    }
+    header.appendChild(meta);
+    frag.appendChild(header);
+    const body = el("div", { class: "body-text" });
+    body.textContent = e.body_text || "(no body)";
+    frag.appendChild(body);
+    return frag;
+  }
+  function buildThreadView(db, threadId) {
+    const frag = document.createDocumentFragment();
+    const crumb = el("div", { class: "breadcrumb" });
+    const back = el("a", { href: "#/" });
+    back.textContent = "← back";
+    crumb.appendChild(back);
+    crumb.appendChild(document.createTextNode("  ·  thread "));
+    crumb.appendChild(el("span", { class: "addr" }, threadId));
+    frag.appendChild(crumb);
+    const rows = fetchByThread(db, threadId);
+    frag.appendChild(buildListTable(rows));
+    return frag;
+  }
+  function parseRoute() {
+    const hash = location.hash || "#/";
+    const body = hash.slice(1).replace(/^\//, "");
+    if (!body) return { name: "home" };
+    const parts = body.split("/");
+    if (parts[0] === "email" && parts.length === 2) return { name: "email", id: parseInt(decodeURIComponent(parts[1]), 10) };
+    if (parts[0] === "thread" && parts.length >= 2) return { name: "thread", id: decodeURIComponent(parts.slice(1).join("/")) };
+    if (parts[0] === "search" && parts.length >= 2) return { name: "search", q: decodeURIComponent(parts.slice(1).join("/")) };
+    if (parts[0] === "tag" && parts.length >= 2) return { name: "tag", tag: decodeURIComponent(parts.slice(1).join("/")) };
+    return { name: "home" };
+  }
+  function renderList(db, rows) {
+    const pane = document.getElementById("list-pane");
+    clear(pane);
+    pane.appendChild(buildListTable(rows));
+  }
+  function renderDetail(body) {
+    const pane = document.getElementById("detail-pane");
+    clear(pane);
+    if (body === null) {
+      const p = el("p", { class: "empty" });
+      p.textContent = "Select an email to view.";
+      pane.appendChild(p);
+    } else {
+      pane.appendChild(body);
+    }
+  }
+  function highlightSelected(id) {
+    document.querySelectorAll("#list-pane tbody tr").forEach(tr => {
+      tr.classList.toggle("selected", parseInt(tr.dataset.id, 10) === id);
+    });
+  }
+  function render(db) {
+    const route = parseRoute();
+    const searchEl = document.getElementById("search");
+    if (route.name === "search" && searchEl.value !== route.q) searchEl.value = route.q;
+    if (route.name === "home") {
+      renderList(db, fetchRecent(db, 200));
+      renderDetail(null);
+    } else if (route.name === "search") {
+      renderList(db, fetchBySearch(db, route.q));
+      renderDetail(null);
+    } else if (route.name === "tag") {
+      renderList(db, fetchByTag(db, route.tag));
+      renderDetail(null);
+    } else if (route.name === "thread") {
+      renderDetail(buildThreadView(db, route.id));
+    } else if (route.name === "email") {
+      const e = fetchEmail(db, route.id);
+      if (e) { renderDetail(buildEmailDetail(e)); highlightSelected(route.id); }
+      else { renderDetail(null); }
+    }
+  }
+  try {
+    const db = await loadDb();
+    document.getElementById("loading").style.display = "none";
+    document.getElementById("app-header").style.display = "flex";
+    document.getElementById("app-body").style.display = "flex";
+    const r = db.exec("SELECT COUNT(*), MIN(date), MAX(date) FROM emails");
+    if (r.length) {
+      const vals = r[0].values[0];
+      const total = vals[0], minDate = vals[1], maxDate = vals[2];
+      const fmt = d => d ? d.substring(0, 10) : "?";
+      document.getElementById("stats").textContent = total + " emails (" + fmt(minDate) + " → " + fmt(maxDate) + ")";
+    }
+    render(db);
+    window.addEventListener("hashchange", () => render(db));
+    let searchTimer = 0;
+    document.getElementById("search").addEventListener("input", ev => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        const q = ev.target.value.trim();
+        location.hash = q ? ("#/search/" + encodeURIComponent(q)) : "#/";
+      }, 140);
+    });
+  } catch (err) {
+    const loading = document.getElementById("loading");
+    loading.textContent = "Could not load archive: " + (err.message || String(err));
+    console.error(err);
+  }
+})();
+</script>
+</body>
+</html>
